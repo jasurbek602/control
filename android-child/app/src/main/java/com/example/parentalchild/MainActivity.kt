@@ -37,7 +37,13 @@ class MainActivity: AppCompatActivity(){
    setOnClickListener{requestDeviceAdmin()}
   }
   root.addView(status);root.addView(screen);root.addView(camera);root.addView(admin);setContentView(root)
-  thread { try{ api.heartbeat(deviceId) }catch(_:Exception){} }
+  thread {
+  try {
+    val code = api.register(deviceId, "Child device")
+    runOnUiThread { status.text = "Device ID: $deviceId\nPairing code: $code\nMonitoring ochiq rejimda ishlaydi" }
+    api.heartbeat(deviceId)
+  } catch (_:Exception) {}
+}
  }
  override fun onResume(){
   super.onResume()
