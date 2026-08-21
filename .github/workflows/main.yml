@@ -19,19 +19,25 @@ jobs:
           java-version: '17'
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platforms;android-37 build-tools;36.0.0'
 
       - name: Setup Gradle Wrapper
         run: |
           mkdir -p gradle/wrapper
-          
-          # gradle-wrapper.jar yuklab olish
-          curl -sL "https://github.com/gradle/gradle/raw/v8.11.1/gradle/wrapper/gradle-wrapper.jar" \
+          curl -sL "https://github.com/gradle/gradle/raw/v9.5.0/gradle/wrapper/gradle-wrapper.jar" \
             -o gradle/wrapper/gradle-wrapper.jar
-          
-          # gradlew scripti yuklab olish (rasmiy)
-          curl -sL "https://github.com/gradle/gradle/raw/v8.11.1/gradlew" \
+          curl -sL "https://github.com/gradle/gradle/raw/v9.5.0/gradlew" \
             -o gradlew
-          
+          cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
+          distributionBase=GRADLE_USER_HOME
+          distributionPath=wrapper/dists
+          distributionUrl=https\://services.gradle.org/distributions/gradle-9.5.0-bin.zip
+          networkTimeout=10000
+          validateDistributionUrl=true
+          zipStoreBase=GRADLE_USER_HOME
+          zipStorePath=wrapper/dists
+          EOF
           chmod +x gradlew
 
       - name: Build Debug APK
