@@ -21,7 +21,7 @@ jobs:
       - uses: android-actions/setup-android@v3
 
       - name: Install Gradle Wrapper
-        run: gradle wrapper --gradle-version 8.7
+        run: gradle wrapper --gradle-version 8.11.1
 
       - name: Make gradlew executable
         run: chmod +x gradlew
