@@ -40,8 +40,8 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
-  } catch (e) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    } catch (e) {
+    return NextResponse.json({ error: 'DEBUG: ' + (e instanceof Error ? e.message : String(e)) }, { status: 401 });
   }
 }
 
