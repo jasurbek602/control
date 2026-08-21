@@ -1,0 +1,25 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+  <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.CAMERA"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+  <application android:theme="@style/Theme.Child" android:label="Family Guard">
+    <receiver
+      android:name=".DeviceAdminReceiver"
+      android:label="Family Guard"
+      android:description="Parental-control device administrator"
+      android:permission="android.permission.BIND_DEVICE_ADMIN"
+      android:exported="true">
+      <meta-data android:name="android.app.device_admin" android:resource="@xml/device_admin_receiver" />
+      <intent-filter>
+        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+        <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED" />
+        <action android:name="android.app.action.DEVICE_ADMIN_DISABLED" />
+      </intent-filter>
+    </receiver>
+    <activity android:name=".MainActivity" android:exported="true">
+      <intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter>
+    </activity>
+    <service android:name=".ScreenCaptureService" android:exported="false" android:foregroundServiceType="mediaProjection"/>
+  </application>
+</manifest>
