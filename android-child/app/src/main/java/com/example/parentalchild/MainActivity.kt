@@ -37,12 +37,14 @@ class MainActivity: AppCompatActivity(){
    setOnClickListener{requestDeviceAdmin()}
   }
   root.addView(status);root.addView(screen);root.addView(camera);root.addView(admin);setContentView(root)
-  thread {
+ thread {
   try {
     val code = api.register(deviceId, "Child device")
     runOnUiThread { status.text = "Device ID: $deviceId\nPairing code: $code\nMonitoring ochiq rejimda ishlaydi" }
     api.heartbeat(deviceId)
-  } catch (_:Exception) {}
+  } catch (e: Exception) {
+    runOnUiThread { status.text = "XATO: ${e.message}" }
+  }
 }
  }
  override fun onResume(){
