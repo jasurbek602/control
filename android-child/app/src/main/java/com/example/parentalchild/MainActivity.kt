@@ -5,11 +5,10 @@ import android.app.Activity
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.camera2.CameraCharacteristics
 import android.media.projection.MediaProjectionManager
 import android.os.Bundle
-import android.widget.Button
-import android.widget.LinearLayout
-import android.widget.TextView
+import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
@@ -17,60 +16,169 @@ import org.json.JSONObject
 import java.util.UUID
 import kotlin.concurrent.thread
 
-class MainActivity: AppCompatActivity(){
- private val prefs by lazy { getSharedPreferences("default", 0) }
- private val deviceId by lazy { prefs.getString("deviceId",null) ?: UUID.randomUUID().toString().also{prefs.edit().putString("deviceId",it).apply()} }
- private val api by lazy { Api(BuildConfig.API_URL,BuildConfig.DEVICE_SECRET) }
- private lateinit var status:TextView
- private lateinit var dpm: DevicePolicyManager
- private lateinit var adminComponent: android.content.ComponentName
- private val screenLauncher=registerForActivityResult(ActivityResultContracts.StartActivityForResult()){ r-> if(r.resultCode==Activity.RESULT_OK && r.data!=null){ startService(Intent(this,ScreenCaptureService::class.java).putExtra("code",r.data).putExtra("resultCode",r.resultCode)); status.text="Screen sharing/capture ruxsat berildi" } else status.text="Screen capture bekor qilindi" }
- private val camPermission=registerForActivityResult(ActivityResultContracts.RequestPermission()){ granted-> status.text=if(granted) "Kamera ruxsati berildi" else "Kamera ruxsati rad etildi" }
- override fun onCreate(savedInstanceState:Bundle?){super.onCreate(savedInstanceState)
-  dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-  adminComponent = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
-  val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(32,48,32,32)}
-  status=TextView(this).apply{text="Device ID: $deviceId\nMonitoring ochiq rejimda ishlaydi"}
-  val screen=Button(this).apply{text="Screen Share / Screenshot ruxsati";setOnClickListener{requestScreen()}}
-  val camera=Button(this).apply{text="Kamera ruxsati";setOnClickListener{askCamera()}}
-  val admin=Button(this).apply{
-   text=if(dpm.isAdminActive(adminComponent)) "Device Administrator yoqilgan" else "Device Administratorni yoqish"
-   setOnClickListener{requestDeviceAdmin()}
-  }
-  root.addView(status);root.addView(screen);root.addView(camera);root.addView(admin);setContentView(root)
- thread {
-  try {
-    val code = api.register(deviceId, "Child device")
-    runOnUiThread { status.text = "Device ID: $deviceId\nPairing code: $code\nMonitoring ochiq rejimda ishlaydi" }
-    val svcIntent = Intent(this, MonitorService::class.java).putExtra("deviceId", deviceId)
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-      startForegroundService(svcIntent)
-    } else {
-      startService(svcIntent)
-    }
-  } catch (e: Exception) {
-    runOnUiThread { status.text = "XATO: ${e.message}" }
-  }
-}
- }
- override fun onResume(){
-  super.onResume()
-  if (::status.isInitialized && ::dpm.isInitialized && ::adminComponent.isInitialized) {
-   status.text = "Device ID: $deviceId\nMonitoring ochiq rejimda ishlaydi\nDevice Administrator: ${if (dpm.isAdminActive(adminComponent)) "yoqilgan" else "o‘chirilgan"}"
-  }
- }
+class MainActivity : AppCompatActivity() {
 
- private fun requestScreen(){ val m=getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager; screenLauncher.launch(m.createScreenCaptureIntent()) }
- private fun requestDeviceAdmin(){
-  if (dpm.isAdminActive(adminComponent)) {
-   status.text = "Device Administrator allaqachon yoqilgan"
-   return
-  }
-  val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
-   putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-   putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard ota-ona nazorati funksiyalarini boshqarish uchun qurilma administratorini yoqishni so‘raydi. Yoqish ixtiyoriy va bu oynani bola o‘zi tasdiqlaydi.")
-  }
-  startActivity(intent)
- }
- private fun askCamera(){ if(ContextCompat.checkSelfPermission(this,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED) status.text="Kamera ruxsati berilgan" else camPermission.launch(Manifest.permission.CAMERA) }
+    private val deviceId by lazy {
+        getPreferences(0).getString("deviceId", null)
+            ?: UUID.randomUUID().toString().also {
+                getPreferences(0).edit().putString("deviceId", it).apply()
+            }
+    }
+    private val api by lazy { Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET) }
+    private lateinit var tvPairing: TextView
+    private lateinit var tvStatus: TextView
+    private lateinit var dpm: DevicePolicyManager
+    private lateinit var adminComp: android.content.ComponentName
+
+    @Volatile private var running = true
+    @Volatile private var screenGranted = false
+
+    private val screenLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { r ->
+        if (r.resultCode == Activity.RESULT_OK && r.data != null) {
+            screenGranted = true
+            startForegroundService(
+                Intent(this, ScreenCaptureService::class.java)
+                    .putExtra("resultCode", r.resultCode)
+                    .putExtra("code", r.data)
+            )
+            setStatus("✅ Screen capture ruxsati berildi")
+        } else {
+            setStatus("❌ Screen capture bekor qilindi")
+        }
+    }
+
+    private val camLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok -> setStatus(if (ok) "✅ Kamera ruxsati berildi" else "❌ Kamera rad etildi") }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        adminComp = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 60, 40, 40)
+        }
+        tvPairing = TextView(this).apply { textSize = 16f; text = "Ulanmoqda..." }
+        tvStatus = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
+
+        root.addView(tvPairing)
+        root.addView(tvStatus)
+        root.addView(Button(this).apply {
+            text = "📱 Screen capture ruxsati"
+            setOnClickListener { requestScreen() }
+        })
+        root.addView(Button(this).apply {
+            text = "📷 Kamera ruxsati"
+            setOnClickListener { requestCamera() }
+        })
+        root.addView(Button(this).apply {
+            text = if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
+            setOnClickListener { requestAdmin() }
+        })
+        setContentView(root)
+
+        startHeartbeatLoop()
+        startPollLoop()
+    }
+
+    private fun startHeartbeatLoop() {
+        thread(name = "heartbeat") {
+            try {
+                val code = api.register(deviceId, "Child device")
+                runOnUiThread {
+                    tvPairing.text = if (code.isNotEmpty())
+                        "✅ Ulandi\nPairing code: $code"
+                    else
+                        "✅ Ulandi (avval ro'yxatdan o'tgan)"
+                }
+            } catch (e: Exception) {
+                runOnUiThread { tvPairing.text = "⚠️ ${e.message}" }
+            }
+            while (running) {
+                try { api.heartbeat(deviceId) } catch (_: Exception) {}
+                Thread.sleep(10_000)
+            }
+        }
+    }
+
+    private fun startPollLoop() {
+        thread(name = "poll") {
+            Thread.sleep(4_000)
+            while (running) {
+                try {
+                    val req = api.pending(deviceId)
+                    if (req != null) handleRequest(req)
+                } catch (_: Exception) {}
+                Thread.sleep(5_000)
+            }
+        }
+    }
+
+    private fun handleRequest(req: JSONObject) {
+        val id = req.getString("_id")
+        val type = req.getString("type")
+        runOnUiThread { setStatus("⏳ $type bajarilmoqda...") }
+        thread {
+            try {
+                when (type) {
+                    "SCREENSHOT", "SCREEN_SHARE" -> {
+                        if (!screenGranted || ScreenCaptureService.instance == null) {
+                            api.updateStatus(id, "FAILED")
+                            runOnUiThread { setStatus("⚠️ Screen ruxsati yo'q — tugmani bosing") }
+                            return@thread
+                        }
+                        val b64 = ScreenCaptureService.captureScreen()
+                        if (b64 != null) {
+                            val url = api.uploadImage(b64)
+                            api.updateStatus(id, "DONE", url)
+                            runOnUiThread { setStatus("✅ $type yuborildi") }
+                        } else {
+                            api.updateStatus(id, "FAILED")
+                            runOnUiThread { setStatus("❌ $type olishda xato") }
+                        }
+                    }
+                    "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT, type)
+                    "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK, type)
+                    else -> api.updateStatus(id, "FAILED")
+                }
+            } catch (e: Exception) {
+                try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
+                runOnUiThread { setStatus("❌ ${e.message}") }
+            }
+        }
+    }
+
+    private fun shootCamera(id: String, facing: Int, type: String) {
+        if (!hasCam()) {
+            api.updateStatus(id, "FAILED")
+            runOnUiThread { setStatus("⚠️ Kamera ruxsati yo'q") }
+            return
+        }
+        val b64 = CameraHelper(this).capturePhoto(facing)
+        if (b64 != null) {
+            val url = api.uploadImage(b64)
+            api.updateStatus(id, "DONE", url)
+            runOnUiThread { setStatus("✅ $type yuborildi") }
+        } else {
+            api.updateStatus(id, "FAILED")
+            runOnUiThread { setStatus("❌ $type olishda xato") }
+        }
+    }
+
+    private fun setStatus(msg: String) { if (::tvStatus.isInitialized) tvStatus.text = msg }
+    private fun hasCam() = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    private fun requestScreen() { screenLauncher.launch((getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent()) }
+    private fun requestCamera() { if (hasCam()) setStatus("✅ Kamera ruxsati bor") else camLauncher.launch(Manifest.permission.CAMERA) }
+    private fun requestAdmin() {
+        if (dpm.isAdminActive(adminComp)) { setStatus("✅ Admin allaqachon yoqilgan"); return }
+        startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard nazorat uchun.")
+        })
+    }
+    override fun onDestroy() { running = false; super.onDestroy() }
 }
