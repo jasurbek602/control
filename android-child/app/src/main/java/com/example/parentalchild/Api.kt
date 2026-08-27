@@ -30,9 +30,9 @@ class Api(private val baseUrl: String, private val secret: String) {
         }
     }
 
-    fun heartbeat(deviceId: String) {
+    fun heartbeat(deviceId: String, battery: Int) {
         http.newCall(req("/api/device/heartbeat", "POST",
-            JSONObject().put("deviceId", deviceId).toString()
+            JSONObject().put("deviceId", deviceId).put("battery", battery).toString()
         )).execute().close()
     }
 
