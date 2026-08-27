@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.hardware.camera2.CameraCharacteristics
 import android.media.projection.MediaProjectionManager
+import android.os.BatteryManager
 import android.os.Bundle
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -63,7 +64,7 @@ class MainActivity : AppCompatActivity() {
             setPadding(40, 60, 40, 40)
         }
         tvPairing = TextView(this).apply { textSize = 16f; text = "Ulanmoqda..." }
-        tvStatus = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
+        tvStatus  = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
 
         root.addView(tvPairing)
         root.addView(tvStatus)
@@ -85,6 +86,11 @@ class MainActivity : AppCompatActivity() {
         startPollLoop()
     }
 
+    private fun getBattery(): Int {
+        val bm = getSystemService(BatteryManager::class.java)
+        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    }
+
     private fun startHeartbeatLoop() {
         thread(name = "heartbeat") {
             try {
@@ -92,14 +98,17 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     tvPairing.text = if (code.isNotEmpty())
                         "✅ Ulandi\nPairing code: $code"
-                    else
-                        "✅ Ulandi (avval ro'yxatdan o'tgan)"
+                    else "✅ Ulandi"
                 }
             } catch (e: Exception) {
                 runOnUiThread { tvPairing.text = "⚠️ ${e.message}" }
             }
             while (running) {
-                try { api.heartbeat(deviceId) } catch (_: Exception) {}
+                try {
+                    val bat = getBattery()
+                    api.heartbeat(deviceId, bat)
+                    runOnUiThread { setStatus("🔋 Battery: $bat% · Monitoring faol") }
+                } catch (_: Exception) {}
                 Thread.sleep(10_000)
             }
         }
@@ -119,7 +128,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun handleRequest(req: JSONObject) {
-        val id = req.getString("_id")
+        val id   = req.getString("_id")
         val type = req.getString("type")
         runOnUiThread { setStatus("⏳ $type bajarilmoqda...") }
         thread {
