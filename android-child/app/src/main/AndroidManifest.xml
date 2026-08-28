@@ -1,18 +1,29 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-  <!-- Avvalgi ruxsatlar -->
+  <!-- Tarmoq -->
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+  <!-- Kamera -->
   <uses-permission android:name="android.permission.CAMERA"/>
+
+  <!-- Screen capture -->
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
 
-  <!-- ✅ Yangi: telefon yoqilganda va internet holatini kuzatish -->
+  <!-- ✅ Lokatsiya -->
+  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+  <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+
+  <!-- Avtomatik ishga tushish -->
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 
   <application android:theme="@style/Theme.Child" android:label="Family Guard">
 
+    <!-- Device Admin -->
     <receiver
       android:name=".DeviceAdminReceiver"
       android:label="Family Guard"
@@ -27,20 +38,18 @@
       </intent-filter>
     </receiver>
 
-    <!-- ✅ Yangi: boot va internet receiver -->
+    <!-- Boot va internet receiver -->
     <receiver
       android:name=".BootReceiver"
       android:exported="true">
       <intent-filter>
-        <!-- Telefon yoqilganda (oddiy boot) -->
         <action android:name="android.intent.action.BOOT_COMPLETED"/>
-        <!-- Telefon PIN kiritilmasdan oldin (encrypted boot) -->
         <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
-        <!-- Internet ulanishida -->
         <action android:name="android.net.conn.CONNECTIVITY_CHANGE"/>
       </intent-filter>
     </receiver>
 
+    <!-- Asosiy ekran -->
     <activity android:name=".MainActivity" android:exported="true">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
@@ -48,10 +57,11 @@
       </intent-filter>
     </activity>
 
+    <!-- ✅ Service: mediaProjection + camera + location -->
     <service
       android:name=".ScreenCaptureService"
       android:exported="false"
-      android:foregroundServiceType="mediaProjection|camera"/>
+      android:foregroundServiceType="mediaProjection|camera|location"/>
 
   </application>
 </manifest>
