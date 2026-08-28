@@ -6,6 +6,7 @@ import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
+import android.os.Build
 import android.os.Bundle
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,11 +28,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var dpm: DevicePolicyManager
     private lateinit var adminComp: android.content.ComponentName
 
+    // Screen capture ruxsati
     private val screenLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) {
-            // ✅ deviceId ham Service'ga uzatilmoqda
             startForegroundService(
                 Intent(this, ScreenCaptureService::class.java)
                     .putExtra("resultCode", r.resultCode)
@@ -44,9 +45,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // Kamera ruxsati
     private val camLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { ok -> setStatus(if (ok) "✅ Kamera ruxsati berildi" else "❌ Kamera rad etildi") }
+
+    // ✅ Lokatsiya ruxsati (aniq — GPS)
+    private val locLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val fine   = results[Manifest.permission.ACCESS_FINE_LOCATION]   == true
+        val coarse = results[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (fine || coarse) {
+            // Android 10+ da background lokatsiya alohida so'raladi
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                setStatus("✅ Lokatsiya ruxsati berildi")
+            }
+        } else {
+            setStatus("❌ Lokatsiya ruxsati rad etildi")
+        }
+    }
+
+    // ✅ Background lokatsiya (Android 10+) — "Har doim ruxsat ber"
+    private val bgLocLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok ->
+        setStatus(if (ok) "✅ Lokatsiya (background) ruxsati berildi" else "⚠️ Lokatsiya faqat ilova ochiq paytda ishlaydi")
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -57,6 +84,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 60, 40, 40)
         }
+
         tvPairing = TextView(this).apply {
             textSize = 16f
             text = "Device ID: $deviceId"
@@ -69,6 +97,7 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(tvPairing)
         root.addView(tvStatus)
+
         root.addView(Button(this).apply {
             text = "📱 Screen capture ruxsati"
             setOnClickListener { requestScreen() }
@@ -77,14 +106,19 @@ class MainActivity : AppCompatActivity() {
             text = "📷 Kamera ruxsati"
             setOnClickListener { requestCamera() }
         })
+        // ✅ Yangi tugma
+        root.addView(Button(this).apply {
+            text = "📍 Lokatsiya ruxsati"
+            setOnClickListener { requestLocation() }
+        })
         root.addView(Button(this).apply {
             text = if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
             setOnClickListener { requestAdmin() }
         })
+
         setContentView(root)
 
-        // ✅ Ilova birinchi marta ochilganda Service'ni ishga tushiramiz
-        // (screen ruxsatisiz — heartbeat va poll ishlashi uchun yetarli)
+        // Ilova ochilganda Service avtomatik ishga tushadi
         startForegroundService(
             Intent(this, ScreenCaptureService::class.java)
                 .putExtra("deviceId", deviceId)
@@ -97,8 +131,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun requestScreen() {
         screenLauncher.launch(
-            (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
-                .createScreenCaptureIntent()
+            (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent()
         )
     }
 
@@ -109,10 +142,33 @@ class MainActivity : AppCompatActivity() {
             camLauncher.launch(Manifest.permission.CAMERA)
     }
 
+    // ✅ Lokatsiya ruxsati so'rash
+    private fun requestLocation() {
+        val fine   = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)   == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+        if (fine || coarse) {
+            // Android 10+ — background ruxsatini tekshiramiz
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val bg = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!bg) bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                else setStatus("✅ Lokatsiya ruxsati bor (background)")
+            } else {
+                setStatus("✅ Lokatsiya ruxsati bor")
+            }
+        } else {
+            locLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
+        }
+    }
+
     private fun requestAdmin() {
         if (dpm.isAdminActive(adminComp)) {
-            setStatus("✅ Admin allaqachon yoqilgan")
-            return
+            setStatus("✅ Admin allaqachon yoqilgan"); return
         }
         startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
@@ -120,9 +176,5 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    // ✅ onDestroy'dan running = false O'CHIRILDI
-    // Service mustaqil ishlayveradi, Activity yopilishi unga ta'sir qilmaydi
-    override fun onDestroy() {
-        super.onDestroy()
-    }
+    override fun onDestroy() { super.onDestroy() }
 }
