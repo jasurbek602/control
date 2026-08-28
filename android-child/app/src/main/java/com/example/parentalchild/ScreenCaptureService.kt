@@ -15,13 +15,9 @@ import android.os.Build
 import android.os.IBinder
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
-import android.Manifest
-import android.content.pm.PackageManager
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Base64
-import java.util.UUID
 import kotlin.concurrent.thread
 
 class ScreenCaptureService : Service() {
@@ -36,90 +32,85 @@ class ScreenCaptureService : Service() {
     private var reader: ImageReader? = null
     private var w = 1080; private var h = 1920; private var dpi = 320
 
-    @Volatile private var screenGranted = false
-    @Volatile private var loopsStarted = false
+    private lateinit var api: Api
+    private lateinit var deviceId: String
 
-    private val deviceId by lazy {
-        getSharedPreferences("guard", MODE_PRIVATE).getString("deviceId", null)
-            ?: UUID.randomUUID().toString().also {
-                getSharedPreferences("guard", MODE_PRIVATE).edit().putString("deviceId", it).apply()
-            }
-    }
-    private val api by lazy { Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET) }
+    @Volatile private var running = false
 
     override fun onCreate() {
         super.onCreate()
         instance = this
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(NotificationChannel("cap", "Screen Capture", NotificationManager.IMPORTANCE_LOW))
+                .createNotificationChannel(
+                    NotificationChannel("cap", "Screen Capture", NotificationManager.IMPORTANCE_LOW)
+                )
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(1, NotificationCompat.Builder(this, "cap")
-            .setContentTitle("Family Guard").setContentText("Monitoring faol")
-            .setSmallIcon(android.R.drawable.ic_menu_view).build())
+        startForeground(
+            1, NotificationCompat.Builder(this, "cap")
+                .setContentTitle("Family Guard")
+                .setContentText("Monitoring faol")
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .build()
+        )
 
-        // Doimiy tsikllarni faqat BIR MARTA ishga tushiramiz (Activity o'lsa ham bu davom etadi)
-        if (!loopsStarted) {
-            loopsStarted = true
-            startHeartbeatLoop()
-            startPollLoop()
+        val devId = intent?.getStringExtra("deviceId")
+        if (devId != null) {
+            deviceId = devId
+            api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
         }
 
-        // Agar bu chaqiruv MediaProjection ruxsati bilan kelgan bo'lsa — virtual displayni sozlaymiz
-        val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED) ?: Activity.RESULT_CANCELED
-        val data: Intent? = if (Build.VERSION.SDK_INT >= 33) intent?.getParcelableExtra("code", Intent::class.java)
-                            else @Suppress("DEPRECATION") intent?.getParcelableExtra("code")
+        val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED)
+        val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
+            intent?.getParcelableExtra("code", Intent::class.java)
+        else
+            @Suppress("DEPRECATION") intent?.getParcelableExtra("code")
 
-        if (code == Activity.RESULT_OK && data != null) {
-            setupProjection(code, data)
-            screenGranted = true
+        // Screen capture setup (faqat ruxsat berilganda)
+        if (code != null && code != Activity.RESULT_CANCELED && data != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
+                w = b.width(); h = b.height()
+            } else {
+                val dm = resources.displayMetrics; w = dm.widthPixels; h = dm.heightPixels
+            }
+            dpi = resources.displayMetrics.densityDpi
+
+            projection?.stop()
+            display?.release()
+            reader?.close()
+
+            projection = (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
+                .getMediaProjection(code, data)
+            reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+            display = projection?.createVirtualDisplay(
+                "FG", w, h, dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                reader?.surface, null, null
+            )
+        }
+
+        // Heartbeat va poll tsikllarini faqat bir marta boshlash
+        if (!running && ::deviceId.isInitialized) {
+            running = true
+            startHeartbeatLoop()
+            startPollLoop()
         }
 
         return START_STICKY
     }
 
-    private fun setupProjection(code: Int, data: Intent) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
-            w = b.width(); h = b.height()
-        } else {
-            val dm = resources.displayMetrics; w = dm.widthPixels; h = dm.heightPixels
-        }
-        dpi = resources.displayMetrics.densityDpi
-
-        projection = (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).getMediaProjection(code, data)
-        reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-        display = projection?.createVirtualDisplay("FG", w, h, dpi, DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader?.surface, null, null)
-    }
-
-    fun capture(): String? = try {
-        Thread.sleep(300)
-        val img = reader?.acquireLatestImage() ?: return null
-        val pl = img.planes[0]
-        val pad = pl.rowStride - pl.pixelStride * w
-        val bmp = Bitmap.createBitmap(w + pad / pl.pixelStride, h, Bitmap.Config.ARGB_8888)
-        bmp.copyPixelsFromBuffer(pl.buffer)
-        img.close()
-        val crop = Bitmap.createBitmap(bmp, 0, 0, w, h); bmp.recycle()
-        val out = ByteArrayOutputStream()
-        crop.compress(Bitmap.CompressFormat.JPEG, 70, out); crop.recycle()
-        Base64.getEncoder().encodeToString(out.toByteArray())
-    } catch (_: Exception) { null }
-
-    private fun getBattery(): Int {
-        val bm = getSystemService(BatteryManager::class.java)
-        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    }
-
+    // ✅ Heartbeat — ilovadan chiqqanda ham ishlaydi
     private fun startHeartbeatLoop() {
         thread(name = "heartbeat") {
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
-            while (true) {
+            while (running) {
                 try {
-                    val bat = getBattery()
+                    val bm = getSystemService(BatteryManager::class.java)
+                    val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     api.heartbeat(deviceId, bat)
                 } catch (_: Exception) {}
                 Thread.sleep(10_000)
@@ -127,10 +118,11 @@ class ScreenCaptureService : Service() {
         }
     }
 
+    // ✅ Poll — ilovadan chiqqanda ham serverdan buyruq tekshiriladi
     private fun startPollLoop() {
         thread(name = "poll") {
             Thread.sleep(4_000)
-            while (true) {
+            while (running) {
                 try {
                     val req = api.pending(deviceId)
                     if (req != null) handleRequest(req)
@@ -147,36 +139,60 @@ class ScreenCaptureService : Service() {
             try {
                 when (type) {
                     "SCREENSHOT", "SCREEN_SHARE" -> {
-                        if (!screenGranted) { api.updateStatus(id, "FAILED"); return@thread }
-                        val b64 = captureScreen()
+                        if (projection == null || reader == null) {
+                            api.updateStatus(id, "FAILED")
+                            return@thread
+                        }
+                        val b64 = capture()
                         if (b64 != null) {
                             val url = api.uploadImage(b64)
                             api.updateStatus(id, "DONE", url)
-                        } else api.updateStatus(id, "FAILED")
+                        } else {
+                            api.updateStatus(id, "FAILED")
+                        }
                     }
                     "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
                     "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
                     else -> api.updateStatus(id, "FAILED")
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
                 try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
             }
         }
     }
 
     private fun shootCamera(id: String, facing: Int) {
-        val hasCam = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-        if (!hasCam) { api.updateStatus(id, "FAILED"); return }
         val b64 = CameraHelper(this).capturePhoto(facing)
         if (b64 != null) {
             val url = api.uploadImage(b64)
             api.updateStatus(id, "DONE", url)
-        } else api.updateStatus(id, "FAILED")
+        } else {
+            api.updateStatus(id, "FAILED")
+        }
     }
 
+    fun capture(): String? = try {
+        Thread.sleep(300)
+        val img = reader?.acquireLatestImage() ?: return null
+        val pl = img.planes[0]
+        val pad = pl.rowStride - pl.pixelStride * w
+        val bmp = Bitmap.createBitmap(w + pad / pl.pixelStride, h, Bitmap.Config.ARGB_8888)
+        bmp.copyPixelsFromBuffer(pl.buffer)
+        img.close()
+        val crop = Bitmap.createBitmap(bmp, 0, 0, w, h); bmp.recycle()
+        val out = ByteArrayOutputStream()
+        crop.compress(Bitmap.CompressFormat.JPEG, 70, out); crop.recycle()
+        Base64.getEncoder().encodeToString(out.toByteArray())
+    } catch (_: Exception) { null }
+
     override fun onDestroy() {
-        instance = null; display?.release(); reader?.close(); projection?.stop()
+        running = false
+        instance = null
+        display?.release()
+        reader?.close()
+        projection?.stop()
         super.onDestroy()
     }
+
     override fun onBind(i: Intent?): IBinder? = null
 }
