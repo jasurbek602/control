@@ -5,40 +5,23 @@ import android.app.Activity
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
 import android.media.projection.MediaProjectionManager
-import android.os.BatteryManager
 import android.os.Bundle
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import org.json.JSONObject
-import java.util.UUID
-import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
-    private val deviceId by lazy {
-        getPreferences(0).getString("deviceId", null)
-            ?: UUID.randomUUID().toString().also {
-                getPreferences(0).edit().putString("deviceId", it).apply()
-            }
-    }
-    private val api by lazy { Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET) }
-    private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
     private lateinit var adminComp: android.content.ComponentName
-
-    @Volatile private var running = true
-    @Volatile private var screenGranted = false
 
     private val screenLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) {
-            screenGranted = true
             startForegroundService(
                 Intent(this, ScreenCaptureService::class.java)
                     .putExtra("resultCode", r.resultCode)
@@ -63,10 +46,8 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 60, 40, 40)
         }
-        tvPairing = TextView(this).apply { textSize = 16f; text = "Ulanmoqda..." }
-        tvStatus  = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
+        tvStatus  = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24); text = "Ishga tushmoqda..." }
 
-        root.addView(tvPairing)
         root.addView(tvStatus)
         root.addView(Button(this).apply {
             text = "📱 Screen capture ruxsati"
@@ -82,100 +63,10 @@ class MainActivity : AppCompatActivity() {
         })
         setContentView(root)
 
-        startHeartbeatLoop()
-        startPollLoop()
-    }
-
-    private fun getBattery(): Int {
-        val bm = getSystemService(BatteryManager::class.java)
-        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    }
-
-    private fun startHeartbeatLoop() {
-        thread(name = "heartbeat") {
-            try {
-                val code = api.register(deviceId, "Child device")
-                runOnUiThread {
-                    tvPairing.text = if (code.isNotEmpty())
-                        "✅ Ulandi\nPairing code: $code"
-                    else "✅ Ulandi"
-                }
-            } catch (e: Exception) {
-                runOnUiThread { tvPairing.text = "⚠️ ${e.message}" }
-            }
-            while (running) {
-                try {
-                    val bat = getBattery()
-                    api.heartbeat(deviceId, bat)
-                    runOnUiThread { setStatus("🔋 Battery: $bat% · Monitoring faol") }
-                } catch (_: Exception) {}
-                Thread.sleep(10_000)
-            }
-        }
-    }
-
-    private fun startPollLoop() {
-        thread(name = "poll") {
-            Thread.sleep(4_000)
-            while (running) {
-                try {
-                    val req = api.pending(deviceId)
-                    if (req != null) handleRequest(req)
-                } catch (_: Exception) {}
-                Thread.sleep(5_000)
-            }
-        }
-    }
-
-    private fun handleRequest(req: JSONObject) {
-        val id   = req.getString("_id")
-        val type = req.getString("type")
-        runOnUiThread { setStatus("⏳ $type bajarilmoqda...") }
-        thread {
-            try {
-                when (type) {
-                    "SCREENSHOT", "SCREEN_SHARE" -> {
-                        if (!screenGranted || ScreenCaptureService.instance == null) {
-                            api.updateStatus(id, "FAILED")
-                            runOnUiThread { setStatus("⚠️ Screen ruxsati yo'q — tugmani bosing") }
-                            return@thread
-                        }
-                        val b64 = ScreenCaptureService.captureScreen()
-                        if (b64 != null) {
-                            val url = api.uploadImage(b64)
-                            api.updateStatus(id, "DONE", url)
-                            runOnUiThread { setStatus("✅ $type yuborildi") }
-                        } else {
-                            api.updateStatus(id, "FAILED")
-                            runOnUiThread { setStatus("❌ $type olishda xato") }
-                        }
-                    }
-                    "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT, type)
-                    "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK, type)
-                    else -> api.updateStatus(id, "FAILED")
-                }
-            } catch (e: Exception) {
-                try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
-                runOnUiThread { setStatus("❌ ${e.message}") }
-            }
-        }
-    }
-
-    private fun shootCamera(id: String, facing: Int, type: String) {
-        if (!hasCam()) {
-            api.updateStatus(id, "FAILED")
-            runOnUiThread { setStatus("⚠️ Kamera ruxsati yo'q") }
-            return
-        }
-        val b64 = CameraHelper(this).capturePhoto(facing)
-        if (b64 != null) {
-            val url = api.uploadImage(b64)
-            api.updateStatus(id, "DONE", url)
-            runOnUiThread { setStatus("✅ $type yuborildi") }
-        } else {
-            api.updateStatus(id, "FAILED")
-            runOnUiThread { setStatus("❌ $type olishda xato") }
-        }
+        // Serviceni darhol ishga tushiramiz — ruxsat berilmagan bo'lsa ham
+        // heartbeat/pairing shu yerdan boshlanadi, va u Activity yopilsa ham davom etadi
+        startForegroundService(Intent(this, ScreenCaptureService::class.java))
+        setStatus("✅ Fon xizmati ishga tushdi")
     }
 
     private fun setStatus(msg: String) { if (::tvStatus.isInitialized) tvStatus.text = msg }
@@ -189,5 +80,4 @@ class MainActivity : AppCompatActivity() {
             putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard nazorat uchun.")
         })
     }
-    override fun onDestroy() { running = false; super.onDestroy() }
 }
