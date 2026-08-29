@@ -10,12 +10,24 @@ type Req = {
   _id: string; deviceId: string; type: string;
   status: string; createdAt: string; resultUrl?: string;
 };
+type AppEntry = { name: string; package: string; minutes?: number };
+type ModalContent =
+  | { kind: 'image'; url: string }
+  | { kind: 'map'; lat: number; lng: number }
+  | { kind: 'apps'; data: AppEntry[]; title: string }
+  | { kind: 'usage'; data: AppEntry[] };
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
 };
-const TYPE_ICON: Record<string, string> = {
-  SCREENSHOT: '📸', CAMERA_FRONT: '🤳', CAMERA_BACK: '📷', SCREEN_SHARE: '🖥️',
+const TYPE_META: Record<string, { icon: string; label: string }> = {
+  SCREENSHOT:   { icon: '📸', label: 'Screenshot' },
+  CAMERA_FRONT: { icon: '🤳', label: 'Oldingi kamera' },
+  CAMERA_BACK:  { icon: '📷', label: 'Orqa kamera' },
+  SCREEN_SHARE: { icon: '🖥️', label: 'Screen share' },
+  LOCATION:     { icon: '📍', label: 'Lokatsiya' },
+  APP_LIST:     { icon: '📋', label: 'Ilovalar' },
+  APP_USAGE:    { icon: '📊', label: 'Foydalanish' },
 };
 
 function timeAgo(dateStr: string) {
@@ -24,12 +36,20 @@ function timeAgo(dateStr: string) {
   if (sec < 3600) return `${Math.floor(sec / 60)}m oldin`;
   return `${Math.floor(sec / 3600)}s oldin`;
 }
-
 function batteryIcon(b?: number) {
   if (b == null) return '';
   if (b > 70) return '🔋';
   if (b > 30) return '🪫';
   return '🔴';
+}
+function isLatLng(url: string) {
+  return /^-?\d+\.?\d*,-?\d+\.?\d*$/.test(url.trim());
+}
+function isImageType(type: string) {
+  return ['SCREENSHOT', 'CAMERA_FRONT', 'CAMERA_BACK', 'SCREEN_SHARE'].includes(type);
+}
+function isJsonType(type: string) {
+  return ['APP_LIST', 'APP_USAGE'].includes(type);
 }
 
 export default function Home() {
@@ -38,10 +58,10 @@ export default function Home() {
   const [pairCode, setPairCode] = useState('');
   const [name, setName]         = useState('My child');
   const [busy, setBusy]         = useState(false);
-  const [preview, setPreview]   = useState<string | null>(null);
+  const [modal, setModal]       = useState<ModalContent | null>(null);
   const [filter, setFilter]     = useState<'ALL'|'PENDING'|'DONE'|'FAILED'>('ALL');
+  const [loadingId, setLoadingId] = useState<string | null>(null);
   const prevDoneIds = useRef<Set<string>>(new Set());
-  const audioRef = useRef<AudioContext | null>(null);
 
   function playBeep() {
     try {
@@ -62,13 +82,8 @@ export default function Home() {
     const x = await fetch('/api/request?mode=list').then(r => r.json()).catch(() => ({}));
     const reqs: Req[] = x.requests ?? [];
     setRequests(reqs);
-
-    // Yangi DONE so'rov bo'lsa — beep
     const newDone = reqs.filter(r => r.status === 'DONE' && !prevDoneIds.current.has(r._id));
-    if (newDone.length > 0) {
-      playBeep();
-      newDone.forEach(r => prevDoneIds.current.add(r._id));
-    }
+    if (newDone.length > 0) { playBeep(); newDone.forEach(r => prevDoneIds.current.add(r._id)); }
     reqs.forEach(r => { if (r.status !== 'PENDING') prevDoneIds.current.add(r._id); });
   }
 
@@ -117,6 +132,32 @@ export default function Home() {
     refresh();
   }
 
+  async function openResult(r: Req) {
+    if (!r.resultUrl || r.status !== 'DONE') return;
+    setLoadingId(r._id);
+
+    if (isLatLng(r.resultUrl)) {
+      const [lat, lng] = r.resultUrl.split(',').map(Number);
+      setModal({ kind: 'map', lat, lng });
+      setLoadingId(null);
+      return;
+    }
+
+    if (isJsonType(r.type)) {
+      try {
+        const res  = await fetch(r.resultUrl);
+        const data: AppEntry[] = await res.json();
+        if (r.type === 'APP_LIST') setModal({ kind: 'apps', data, title: 'O\'rnatilgan ilovalar' });
+        else setModal({ kind: 'usage', data });
+      } catch (_) {}
+      setLoadingId(null);
+      return;
+    }
+
+    setModal({ kind: 'image', url: r.resultUrl });
+    setLoadingId(null);
+  }
+
   const filtered = requests.filter(r => filter === 'ALL' || r.status === filter);
   const counts = {
     ALL: requests.length,
@@ -125,8 +166,18 @@ export default function Home() {
     FAILED: requests.filter(r => r.status === 'FAILED').length,
   };
 
+  const BUTTONS = [
+    { type: 'SCREENSHOT',   label: '📸 Screenshot' },
+    { type: 'CAMERA_FRONT', label: '🤳 Oldingi kamera' },
+    { type: 'CAMERA_BACK',  label: '📷 Orqa kamera' },
+    { type: 'SCREEN_SHARE', label: '🖥️ Screen share' },
+    { type: 'LOCATION',     label: '📍 Lokatsiya' },
+    { type: 'APP_LIST',     label: '📋 Ilovalar ro\'yxati' },
+    { type: 'APP_USAGE',    label: '📊 Foydalanish vaqti' },
+  ];
+
   return (
-    <main style={{ maxWidth: 920, margin: '0 auto', padding: '32px 16px', fontFamily: 'system-ui,sans-serif', background: '#f9fafb', minHeight: '100vh' }}>
+    <main style={{ maxWidth: 960, margin: '0 auto', padding: '32px 16px', fontFamily: 'system-ui,sans-serif', background: '#f9fafb', minHeight: '100vh' }}>
 
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
@@ -145,124 +196,183 @@ export default function Home() {
             onKeyDown={e => e.key === 'Enter' && connect()}
             style={{ padding: '10px 14px', border: '1px solid #d1d5db', borderRadius: 8, fontSize: 14, flex: 1, minWidth: 160, letterSpacing: 2, fontWeight: 600 }}/>
           <button onClick={connect} disabled={busy || !pairCode.trim()}
-            style={{ padding: '10px 24px', background: busy ? '#9ca3af' : '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600, fontSize: 14 }}>
+            style={{ padding: '10px 24px', background: busy ? '#9ca3af' : '#2563eb', color: '#fff', border: 'none', borderRadius: 8, cursor: busy ? 'not-allowed' : 'pointer', fontWeight: 600 }}>
             {busy ? '...' : 'Ulash'}
           </button>
         </div>
       </section>
 
       {/* Qurilmalar */}
-      {devices.length > 0 && (
-        <section style={{ display: 'grid', gap: 16, marginBottom: 20 }}>
-          {devices.map(d => (
-            <article key={d._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 24 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.online ? '#10b981' : '#9ca3af', boxShadow: d.online ? '0 0 0 3px #d1fae5' : 'none', flexShrink: 0 }}/>
-                <h3 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{d.name}</h3>
-                <span style={{ fontSize: 12, color: d.online ? '#10b981' : '#9ca3af', fontWeight: 500 }}>{d.online ? 'online' : 'offline'}</span>
-                {d.battery != null && (
-                  <span style={{ fontSize: 12, color: '#6b7280', marginLeft: 'auto' }}>
-                    {batteryIcon(d.battery)} {d.battery}%
-                  </span>
-                )}
-              </div>
-              <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 16px' }}>
-                ID: {d.deviceId} · Oxirgi: {timeAgo(d.lastSeen)}
-              </p>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                {[
-                  { type: 'SCREENSHOT',   label: '📸 Screenshot' },
-                  { type: 'CAMERA_FRONT', label: '🤳 Oldingi kamera' },
-                  { type: 'CAMERA_BACK',  label: '📷 Orqa kamera' },
-                  { type: 'SCREEN_SHARE', label: '🖥️ Screen share' },
-                ].map(({ type, label }) => (
-                  <button key={type} onClick={() => sendReq(d.deviceId, type)}
-                    style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </article>
-          ))}
+      {devices.map(d => (
+        <section key={d._id} style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 24, marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
+            <span style={{ width: 10, height: 10, borderRadius: '50%', background: d.online ? '#10b981' : '#9ca3af', boxShadow: d.online ? '0 0 0 3px #d1fae5' : 'none', flexShrink: 0 }}/>
+            <h3 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{d.name}</h3>
+            <span style={{ fontSize: 12, color: d.online ? '#10b981' : '#9ca3af', fontWeight: 500 }}>{d.online ? 'online' : 'offline'}</span>
+            {d.battery != null && (
+              <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 'auto' }}>
+                {batteryIcon(d.battery)} {d.battery}%
+              </span>
+            )}
+          </div>
+          <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 16px' }}>
+            Oxirgi: {timeAgo(d.lastSeen)}
+          </p>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {BUTTONS.map(({ type, label }) => (
+              <button key={type} onClick={() => sendReq(d.deviceId, type)}
+                style={{ padding: '8px 14px', background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 500 }}>
+                {label}
+              </button>
+            ))}
+          </div>
         </section>
-      )}
+      ))}
 
       {/* So'rovlar */}
       <section style={{ background: '#fff', border: '1px solid #e5e7eb', borderRadius: 16, padding: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 14 }}>
           <h2 style={{ fontSize: 16, fontWeight: 600, margin: 0, flex: 1 }}>So'rovlar tarixi</h2>
           {requests.length > 0 && (
-            <button onClick={clearAll}
-              style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', padding: '4px 8px' }}>
+            <button onClick={clearAll} style={{ fontSize: 12, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer' }}>
               Hammasini o'chirish
             </button>
           )}
         </div>
 
-        {/* Filter tabs */}
+        {/* Filter */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['ALL','PENDING','DONE','FAILED'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
               style={{ padding: '5px 14px', borderRadius: 20, border: '1px solid #e5e7eb', fontSize: 12, fontWeight: 600, cursor: 'pointer',
                 background: filter === f ? '#2563eb' : '#f3f4f6',
                 color: filter === f ? '#fff' : '#6b7280' }}>
-              {f} {counts[f] > 0 && <span>({counts[f]})</span>}
+              {f} {counts[f] > 0 && `(${counts[f]})`}
             </button>
           ))}
         </div>
 
         {filtered.length === 0 && (
-          <p style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: '24px 0' }}>
-            {filter === 'ALL' ? 'Hali so\'rov yo\'q' : `${filter} so'rovlar yo'q`}
-          </p>
+          <p style={{ color: '#9ca3af', fontSize: 14, textAlign: 'center', padding: '24px 0' }}>So'rovlar yo'q</p>
         )}
 
-        {filtered.map(r => (
-          <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid #f3f4f6' }}>
+        {filtered.map(r => {
+          const meta = TYPE_META[r.type] ?? { icon: '📋', label: r.type };
+          const hasResult = r.resultUrl && r.status === 'DONE';
+          return (
+            <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid #f3f4f6' }}>
+              {/* Thumbnail / icon */}
+              {hasResult && isImageType(r.type) ? (
+                <img src={r.resultUrl} alt="" onClick={() => openResult(r)}
+                  style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', flexShrink: 0, border: '1px solid #e5e7eb' }}/>
+              ) : (
+                <span style={{ width: 48, textAlign: 'center', fontSize: 22, flexShrink: 0 }}>{meta.icon}</span>
+              )}
 
-            {/* Thumbnail */}
-            {r.resultUrl && r.status === 'DONE' ? (
-              <img src={r.resultUrl} alt="" onClick={() => setPreview(r.resultUrl!)}
-                style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', flexShrink: 0, border: '1px solid #e5e7eb' }}/>
-            ) : (
-              <span style={{ width: 48, textAlign: 'center', fontSize: 22, flexShrink: 0 }}>
-                {TYPE_ICON[r.type] ?? '📋'}
-              </span>
-            )}
+              <span style={{ fontSize: 13, fontWeight: 500, minWidth: 120 }}>{meta.label}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLOR[r.status] ?? '#6b7280', minWidth: 55 }}>{r.status}</span>
+              <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{timeAgo(r.createdAt)}</span>
 
-            <span style={{ fontSize: 13, fontWeight: 500, minWidth: 110 }}>{r.type}</span>
-            <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLOR[r.status] ?? '#6b7280', minWidth: 60 }}>{r.status}</span>
-            <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{timeAgo(r.createdAt)}</span>
-
-            {r.resultUrl && r.status === 'DONE' && (
-              <button onClick={() => setPreview(r.resultUrl!)}
-                style={{ padding: '4px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
-                Ko'rish
-              </button>
-            )}
-            <button onClick={() => deleteReq(r._id)}
-              style={{ padding: '4px 8px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#9ca3af', flexShrink: 0 }}>
-              ✕
-            </button>
-          </div>
-        ))}
+              {hasResult && (
+                <button onClick={() => openResult(r)} disabled={loadingId === r._id}
+                  style={{ padding: '4px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
+                  {loadingId === r._id ? '...' : 'Ko\'rish'}
+                </button>
+              )}
+              <button onClick={() => deleteReq(r._id)}
+                style={{ padding: '4px 8px', background: 'none', border: '1px solid #e5e7eb', borderRadius: 6, cursor: 'pointer', fontSize: 12, color: '#9ca3af', flexShrink: 0 }}>✕</button>
+            </div>
+          );
+        })}
       </section>
 
-      {/* Preview modal */}
-      {preview && (
-        <div onClick={() => setPreview(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, cursor: 'zoom-out' }}>
-          <div onClick={e => e.stopPropagation()} style={{ position: 'relative' }}>
-            <img src={preview} alt="preview"
-              style={{ maxWidth: '92vw', maxHeight: '88vh', borderRadius: 12, display: 'block', boxShadow: '0 25px 60px rgba(0,0,0,0.5)' }}/>
-            <button onClick={() => setPreview(null)}
-              style={{ position: 'absolute', top: -14, right: -14, width: 30, height: 30, borderRadius: '50%', background: '#fff', border: 'none', cursor: 'pointer', fontSize: 16, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              ×
-            </button>
-            <a href={preview} download target="_blank"
-              style={{ position: 'absolute', bottom: -14, right: -14, background: '#2563eb', color: '#fff', borderRadius: 8, padding: '6px 12px', fontSize: 12, textDecoration: 'none', fontWeight: 600 }}>
-              ⬇ Yuklab olish
-            </a>
+      {/* Modal */}
+      {modal && (
+        <div onClick={() => setModal(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+
+            {/* Yopish tugmasi */}
+            <button onClick={() => setModal(null)}
+              style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: '#f3f4f6', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, zIndex: 10 }}>×</button>
+
+            {/* Rasm */}
+            {modal.kind === 'image' && (
+              <div style={{ padding: 0 }}>
+                <img src={modal.url} alt="result" style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }}/>
+                <div style={{ padding: '12px 16px' }}>
+                  <a href={modal.url} download target="_blank"
+                    style={{ background: '#2563eb', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: 13, textDecoration: 'none', fontWeight: 600 }}>
+                    ⬇ Yuklab olish
+                  </a>
+                </div>
+              </div>
+            )}
+
+            {/* Lokatsiya xaritasi */}
+            {modal.kind === 'map' && (
+              <div style={{ padding: 24 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 16px' }}>📍 Bolaning joylashuvi</h3>
+                <iframe
+                  src={`https://maps.google.com/maps?q=${modal.lat},${modal.lng}&z=16&output=embed`}
+                  width="100%" height="400"
+                  style={{ border: 'none', borderRadius: 12, display: 'block', minWidth: 320 }}/>
+                <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
+                  <a href={`https://maps.google.com/?q=${modal.lat},${modal.lng}`} target="_blank"
+                    style={{ background: '#2563eb', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: 13, textDecoration: 'none', fontWeight: 600 }}>
+                    🗺 Google Maps da ochish
+                  </a>
+                  <span style={{ fontSize: 12, color: '#9ca3af', alignSelf: 'center' }}>
+                    {modal.lat.toFixed(6)}, {modal.lng.toFixed(6)}
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {/* Ilovalar ro'yxati */}
+            {modal.kind === 'apps' && (
+              <div style={{ padding: 24, minWidth: 360 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>📋 O'rnatilgan ilovalar</h3>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <div style={{ display: 'grid', gap: 4 }}>
+                  {modal.data.map((app, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: i % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: 6 }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{app.name}</span>
+                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{app.package}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Foydalanish vaqti */}
+            {modal.kind === 'usage' && (
+              <div style={{ padding: 24, minWidth: 400 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>📊 So'nggi 24 soat foydalanish</h3>
+                <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 16px' }}>Eng ko'p ishlatiladigan ilovalar</p>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {modal.data.map((app, i) => {
+                    const max   = modal.data[0]?.minutes ?? 1;
+                    const pct   = Math.round(((app.minutes ?? 0) / max) * 100);
+                    const hours = Math.floor((app.minutes ?? 0) / 60);
+                    const mins  = (app.minutes ?? 0) % 60;
+                    const label = hours > 0 ? `${hours}s ${mins}d` : `${mins} daqiqa`;
+                    return (
+                      <div key={i} style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <span style={{ fontSize: 13, fontWeight: 500 }}>{app.name}</span>
+                          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>{label}</span>
+                        </div>
+                        <div style={{ height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
+                          <div style={{ height: '100%', width: `${pct}%`, background: '#2563eb', borderRadius: 3 }}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
