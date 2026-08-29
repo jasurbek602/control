@@ -59,9 +59,12 @@ class ScreenCaptureService : Service() {
 
         val devId = intent?.getStringExtra("deviceId")
         if (devId != null) {
-            deviceId = devId
-            api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
-        }
+    deviceId = devId
+    api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
+    // SharedPreferences ga saqlaymiz — restart uchun
+    getSharedPreferences("fg", MODE_PRIVATE)
+        .edit().putString("deviceId", devId).apply()
+}
 
         val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED)
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
