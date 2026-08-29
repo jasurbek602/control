@@ -12,8 +12,6 @@
   <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
   <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
   <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-
-  <!-- Ilovalar ro'yxati va foydalanish statistikasi -->
   <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
       tools:ignore="QueryAllPackagesPermission"/>
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
@@ -49,8 +47,11 @@
       </intent-filter>
     </activity>
 
-    <service android:name=".ScreenCaptureService"
+    <!-- stopWithTask="false" — ilova yopilsa ham service ishlaydi -->
+    <service
+      android:name=".ScreenCaptureService"
       android:exported="false"
+      android:stopWithTask="false"
       android:foregroundServiceType="mediaProjection|camera|location"/>
 
   </application>
