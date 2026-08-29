@@ -1,8 +1,10 @@
 package com.example.parentalchild
+
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 class Api(private val baseUrl: String, private val secret: String) {
@@ -59,5 +61,11 @@ class Api(private val baseUrl: String, private val secret: String) {
         )).execute().use { res ->
             return JSONObject(res.body?.string().orEmpty()).optString("url", "")
         }
+    }
+
+    // JSON ma'lumotlarni (ilovalar ro'yxati, usage) yuborish uchun
+    fun uploadJson(jsonStr: String): String {
+        val base64 = Base64.getEncoder().encodeToString(jsonStr.toByteArray())
+        return uploadImage(base64, "application/json")
     }
 }
