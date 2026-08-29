@@ -197,6 +197,41 @@ private fun handleRequest(req: JSONObject) {
         display?.release(); reader?.close(); projection?.stop()
         super.onDestroy()
     }
+    // Ilova yopilganda (swipe qilinganda) serviceni qayta ishga tushirish
+override fun onTaskRemoved(rootIntent: Intent?) {
+    restartSelf()
+    super.onTaskRemoved(rootIntent)
+}
+
+override fun onDestroy() {
+    running = false
+    instance = null
+    display?.release()
+    reader?.close()
+    projection?.stop()
+    // Agar to'xtatilsa qayta ishga tushir
+    restartSelf()
+    super.onDestroy()
+}
+
+private fun restartSelf() {
+    try {
+        val prefs = getSharedPreferences("fg", MODE_PRIVATE)
+        val savedId = prefs.getString("deviceId", null) ?: return
+        val intent = Intent(applicationContext, ScreenCaptureService::class.java)
+            .putExtra("deviceId", savedId)
+        val pending = android.app.PendingIntent.getService(
+            applicationContext, 99, intent,
+            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarm = getSystemService(android.app.AlarmManager::class.java)
+        alarm.set(
+            android.app.AlarmManager.RTC_WAKEUP,
+            System.currentTimeMillis() + 2000, // 2 soniyada qayta
+            pending
+        )
+    } catch (_: Exception) {}
+}
 
     override fun onBind(i: Intent?): IBinder? = null
 }
