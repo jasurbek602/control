@@ -5,18 +5,15 @@ import android.app.Activity
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.hardware.camera2.CameraCharacteristics
 import android.media.projection.MediaProjectionManager
-import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import org.json.JSONObject
 import java.util.UUID
-import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -26,21 +23,16 @@ class MainActivity : AppCompatActivity() {
                 getPreferences(0).edit().putString("deviceId", it).apply()
             }
     }
-    private val api by lazy { Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET) }
 
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
     private lateinit var adminComp: android.content.ComponentName
 
-    @Volatile private var running = true
-    @Volatile private var screenGranted = false
-
     private val screenLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { r ->
         if (r.resultCode == Activity.RESULT_OK && r.data != null) {
-            screenGranted = true
             startForegroundService(
                 Intent(this, ScreenCaptureService::class.java)
                     .putExtra("resultCode", r.resultCode)
@@ -71,7 +63,7 @@ class MainActivity : AppCompatActivity() {
 
     private val bgLocLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { ok -> setStatus(if (ok) "✅ Background lokatsiya berildi" else "⚠️ Faqat ilova ochiq paytda") }
+    ) { ok -> setStatus(if (ok) "✅ Lokatsiya (background) ruxsati berildi" else "⚠️ Faqat ilova ochiq paytda ishlaydi") }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -82,11 +74,13 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 60, 40, 40)
         }
+
         tvPairing = TextView(this).apply { textSize = 16f; text = "Ulanmoqda..." }
         tvStatus  = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
 
         root.addView(tvPairing)
         root.addView(tvStatus)
+
         root.addView(Button(this).apply {
             text = "📱 Screen capture ruxsati"
             setOnClickListener { requestScreen() }
@@ -100,124 +94,69 @@ class MainActivity : AppCompatActivity() {
             setOnClickListener { requestLocation() }
         })
         root.addView(Button(this).apply {
+            text = "📊 Ilovalar statistikasi ruxsati"
+            setOnClickListener { requestUsageStats() }
+        })
+        root.addView(Button(this).apply {
             text = if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
             setOnClickListener { requestAdmin() }
         })
+
         setContentView(root)
 
-        startHeartbeatLoop()
-        startPollLoop()
-    }
-
-    private fun getBattery(): Int {
-        val bm = getSystemService(BatteryManager::class.java)
-        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
-    }
-
-    private fun startHeartbeatLoop() {
-        thread(name = "heartbeat") {
-            try {
-                val code = api.register(deviceId, "Child device")
-                runOnUiThread {
-                    tvPairing.text = if (code.isNotEmpty())
-                        "✅ Ulandi\nPairing code: $code"
-                    else "✅ Ulandi"
-                }
-            } catch (e: Exception) {
-                runOnUiThread { tvPairing.text = "⚠️ ${e.message}" }
-            }
-            while (running) {
-                try {
-                    api.heartbeat(deviceId, getBattery())
-                    runOnUiThread { setStatus("🔋 ${getBattery()}% · Monitoring faol") }
-                } catch (_: Exception) {}
-                Thread.sleep(10_000)
-            }
-        }
-    }
-
-    private fun startPollLoop() {
-        thread(name = "poll") {
-            Thread.sleep(4_000)
-            while (running) {
-                try {
-                    val req = api.pending(deviceId)
-                    if (req != null) handleRequest(req)
-                } catch (_: Exception) {}
-                Thread.sleep(5_000)
-            }
-        }
-    }
-
-    private fun handleRequest(req: JSONObject) {
-        val id   = req.getString("_id")
-        val type = req.getString("type")
-        runOnUiThread { setStatus("⏳ $type bajarilmoqda...") }
-        thread {
-            try {
-                when (type) {
-                    "SCREENSHOT", "SCREEN_SHARE" -> {
-                        if (!screenGranted || ScreenCaptureService.instance == null) {
-                            api.updateStatus(id, "FAILED")
-                            runOnUiThread { setStatus("⚠️ Screen ruxsati yo'q — tugmani bosing") }
-                            return@thread
-                        }
-                        val b64 = ScreenCaptureService.captureScreen()
-                        if (b64 != null) {
-                            val url = api.uploadImage(b64)
-                            api.updateStatus(id, "DONE", url)
-                            runOnUiThread { setStatus("✅ $type yuborildi") }
-                        } else {
-                            api.updateStatus(id, "FAILED")
-                        }
-                    }
-                    "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT, type)
-                    "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK, type)
-                    "LOCATION"     -> sendLocation(id)
-                    else -> api.updateStatus(id, "FAILED")
-                }
-            } catch (e: Exception) {
-                try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
-                runOnUiThread { setStatus("❌ ${e.message}") }
-            }
-        }
-    }
-
-    private fun shootCamera(id: String, facing: Int, type: String) {
-        if (!hasCam()) { api.updateStatus(id, "FAILED"); return }
-        val b64 = CameraHelper(this).capturePhoto(facing)
-        if (b64 != null) {
-            val url = api.uploadImage(b64)
-            api.updateStatus(id, "DONE", url)
-            runOnUiThread { setStatus("✅ $type yuborildi") }
-        } else {
-            api.updateStatus(id, "FAILED")
-        }
-    }
-
-    private fun sendLocation(id: String) {
-        val loc = LocationHelper(this).getLastLocation()
-        if (loc != null) {
-            api.updateStatus(id, "DONE", "https://maps.google.com/?q=${loc.latitude},${loc.longitude}")
-            runOnUiThread { setStatus("✅ Lokatsiya yuborildi") }
-        } else {
-            api.updateStatus(id, "FAILED")
-        }
+        startForegroundService(
+            Intent(this, ScreenCaptureService::class.java)
+                .putExtra("deviceId", deviceId)
+        )
     }
 
     private fun setStatus(msg: String) { if (::tvStatus.isInitialized) tvStatus.text = msg }
-    private fun hasCam() = ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
-    private fun requestScreen() { screenLauncher.launch((getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent()) }
-    private fun requestCamera() { if (hasCam()) setStatus("✅ Kamera ruxsati bor") else camLauncher.launch(Manifest.permission.CAMERA) }
-    private fun requestLocation() {
-        locLauncher.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+
+    private fun requestScreen() {
+        screenLauncher.launch(
+            (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager).createScreenCaptureIntent()
+        )
     }
+
+    private fun requestCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            setStatus("✅ Kamera ruxsati bor")
+        else camLauncher.launch(Manifest.permission.CAMERA)
+    }
+
+    private fun requestLocation() {
+        val fine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (fine || coarse) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val bg = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+                if (!bg) bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                else setStatus("✅ Lokatsiya ruxsati bor (background)")
+            } else setStatus("✅ Lokatsiya ruxsati bor")
+        } else {
+            locLauncher.launch(arrayOf(
+                Manifest.permission.ACCESS_FINE_LOCATION,
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            ))
+        }
+    }
+
+    private fun requestUsageStats() {
+        if (AppHelper(this).hasUsagePermission()) {
+            setStatus("✅ Ilovalar statistikasi ruxsati bor")
+        } else {
+            setStatus("⚠️ Sozlamalar ochilmoqda — 'Family Guard'ni toping va yoqing")
+            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+        }
+    }
+
     private fun requestAdmin() {
-        if (dpm.isAdminActive(adminComp)) { setStatus("✅ Admin yoqilgan"); return }
+        if (dpm.isAdminActive(adminComp)) { setStatus("✅ Admin allaqachon yoqilgan"); return }
         startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
             putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard nazorat uchun.")
         })
     }
-    override fun onDestroy() { running = false; super.onDestroy() }
+
+    override fun onDestroy() { super.onDestroy() }
 }
