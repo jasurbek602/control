@@ -206,16 +206,7 @@ override fun onTaskRemoved(rootIntent: Intent?) {
     super.onTaskRemoved(rootIntent)
 }
 
-override fun onDestroy() {
-    running = false
-    instance = null
-    display?.release()
-    reader?.close()
-    projection?.stop()
-    // Agar to'xtatilsa qayta ishga tushir
-    restartSelf()
-    super.onDestroy()
-}
+
 
 private fun restartSelf() {
     try {
