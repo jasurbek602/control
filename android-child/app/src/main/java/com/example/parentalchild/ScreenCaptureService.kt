@@ -173,7 +173,7 @@ class ScreenCaptureService : Service() {
                     val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     api.heartbeat(deviceId, bat)
                 } catch (_: Exception) {}
-                Thread.sleep(8_000) // 10 dan 8 ga tushirdim — ishonchli bo'lsin
+                Thread.sleep(5_000) // 10 dan 8 ga tushirdim — ishonchli bo'lsin
             }
         }
     }
