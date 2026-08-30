@@ -26,7 +26,7 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK platforms
+      - name: Install SDK platforms
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager \
             "platforms;android-36" \
@@ -71,6 +71,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: child-debug-apk
+          name: family-guard-apk
           path: android-child/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
