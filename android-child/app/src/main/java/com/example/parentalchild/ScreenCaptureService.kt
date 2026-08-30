@@ -57,21 +57,24 @@ class ScreenCaptureService : Service() {
                 .setContentTitle("Family Guard")
                 .setContentText("Monitoring faol")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
-                .setOngoing(true)       // xabarnoma o'chirilmasin
+                .setOngoing(true)
                 .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
         )
 
+        // Intent dan deviceId olishga harakat qil,
+        // bo'lmasa SharedPreferences dan ol (START_STICKY restart uchun)
         val devId = intent?.getStringExtra("deviceId")
+            ?: getSharedPreferences("fg", MODE_PRIVATE).getString("deviceId", null)
+
         if (devId != null) {
             deviceId = devId
             api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
-            // DeviceId ni SharedPreferences ga saqlash — restart uchun
             getSharedPreferences("fg", MODE_PRIVATE)
                 .edit().putString("deviceId", devId).apply()
         }
 
-        // Screen capture ruxsati bo'lsa
+        // Screen capture ruxsati
         val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED)
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
             intent?.getParcelableExtra("code", Intent::class.java)
@@ -87,7 +90,6 @@ class ScreenCaptureService : Service() {
                 w = dm.widthPixels; h = dm.heightPixels
             }
             dpi = resources.displayMetrics.densityDpi
-
             projection?.stop(); display?.release(); reader?.close()
             projection = (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
                 .getMediaProjection(code, data)
@@ -99,10 +101,10 @@ class ScreenCaptureService : Service() {
             )
         }
 
-        // Loop'larni faqat bir marta ishga tushir
+        // Loop faqat bir marta va deviceId bo'lganda ishga tushsin
         if (!running && ::deviceId.isInitialized) {
             running = true
-            WatchdogReceiver.schedule(this) // Watchdog alarmni o'rnat
+            WatchdogReceiver.schedule(this)
             startHeartbeatLoop()
             startPollLoop()
         }
@@ -110,20 +112,19 @@ class ScreenCaptureService : Service() {
         return START_STICKY
     }
 
-    // Ilova recent'dan o'chirilganda
     override fun onTaskRemoved(rootIntent: Intent?) {
-        scheduleRestart(2_000) // 2 soniyada qayta ishga tushir
+        scheduleRestart(2_000)
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
-        running    = false
-        isRunning  = false
-        instance   = null
+        running   = false
+        isRunning = false
+        instance  = null
         display?.release()
         reader?.close()
         projection?.stop()
-        scheduleRestart(3_000) // 3 soniyada qayta ishga tushir
+        scheduleRestart(3_000)
         super.onDestroy()
     }
 
@@ -135,7 +136,7 @@ class ScreenCaptureService : Service() {
                 .putExtra("deviceId", savedId)
             val pending = PendingIntent.getService(
                 applicationContext, 99, intent,
-                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
             val alarm = getSystemService(AlarmManager::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -146,7 +147,11 @@ class ScreenCaptureService : Service() {
                         pending
                     )
                 } else {
-                    alarm.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + delayMs, pending)
+                    alarm.setAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis() + delayMs,
+                        pending
+                    )
                 }
             } else {
                 alarm.setExactAndAllowWhileIdle(
@@ -160,6 +165,7 @@ class ScreenCaptureService : Service() {
 
     private fun startHeartbeatLoop() {
         thread(name = "heartbeat") {
+            // Avval register qilib ol
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
             while (running) {
                 try {
@@ -167,7 +173,7 @@ class ScreenCaptureService : Service() {
                     val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     api.heartbeat(deviceId, bat)
                 } catch (_: Exception) {}
-                Thread.sleep(10_000)
+                Thread.sleep(8_000) // 10 dan 8 ga tushirdim — ishonchli bo'lsin
             }
         }
     }
@@ -192,23 +198,17 @@ class ScreenCaptureService : Service() {
             try {
                 when (type) {
                     "SCREENSHOT" -> {
-    val b64 = when {
-        // 1) Accessibility Service bor — eng yaxshi usul
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-        FamilyGuardAccessibilityService.isEnabled() -> {
-            FamilyGuardAccessibilityService.takeShot()
-        }
-        // 2) MediaProjection ruxsati bor
-        projection != null && reader != null -> {
-            capture()
-        }
-        // 3) Ikkalasi ham yo'q
-        else -> null
-    }
-
-    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-    else api.updateStatus(id, "FAILED")
-}
+                        val b64 = when {
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                            FamilyGuardAccessibilityService.isEnabled() -> {
+                                FamilyGuardAccessibilityService.takeShot()
+                            }
+                            projection != null && reader != null -> capture()
+                            else -> null
+                        }
+                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+                        else api.updateStatus(id, "FAILED")
+                    }
                     "LOCATION" -> {
                         val loc = LocationHelper(this).getLocation()
                         if (loc != null) api.updateStatus(id, "DONE", "${loc.first},${loc.second}")
