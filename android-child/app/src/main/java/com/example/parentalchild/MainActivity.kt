@@ -93,6 +93,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(makeBtn("📍 Lokatsiya ruxsati") { requestLocation() })
         root.addView(makeBtn("🔔 Bildirishnoma ruxsati") { requestNotification() })
         root.addView(makeBtn("📊 Ilovalar statistikasi ruxsati") { requestUsageStats() })
+        root.addView(makeBtn("♿ Accessibility ruxsati (Screenshot)") { requestAccessibility() })
         root.addView(makeBtn("⚡ Batareya cheklovini olib tashlash") { requestBatteryOptimization() })
         root.addView(makeBtn("⏰ Aniq alarm ruxsati") { requestExactAlarm() })
         root.addView(makeBtn(
