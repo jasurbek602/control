@@ -29,30 +29,9 @@ class MainActivity : AppCompatActivity() {
                 getPreferences(0).edit().putString("deviceId", it).apply()
             }
     }
-    private fun showHideAppDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Ilovaning ikonkasini yashirish")
-            .setMessage("Ilovani menyudan yashirishni xohlaysizmi?")
-            .setPositiveButton("Ha, yashirilsin") { dialog, _ ->
-                hideLauncherIcon()
-                dialog.dismiss()
-            }
-            .setNegativeButton("Yo'q", { dialog, _ ->
-                dialog.dismiss()
-            })
-            .setCancelable(false)
-            .show()
-    }
+    
 
-    private fun hideLauncherIcon() {
-        val p = packageManager
-        val componentName = ComponentName(this, MainActivity::class.java)
-        p.setComponentEnabledSetting(
-            componentName,
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        )
-    }
+    
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
@@ -125,6 +104,8 @@ class MainActivity : AppCompatActivity() {
         root.addView(makeBtn(
             if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
         ) { requestAdmin() })
+        root.addView(makeBtn("🙈 Ilovaning ikonkasini yashirish") { showHideAppDialog() })
+
 
         setContentView(root)
 
@@ -165,6 +146,30 @@ class MainActivity : AppCompatActivity() {
     private fun makeBtn(text: String, onClick: () -> Unit) = Button(this).apply {
         this.text = text
         setOnClickListener { onClick() }
+    }
+    private fun showHideAppDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Ilovaning ikonkasini yashirish")
+            .setMessage("Ilovani menyudan yashirishni xohlaysizmi?")
+            .setPositiveButton("Ha, yashirilsin") { dialog, _ ->
+                hideLauncherIcon()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Yo'q") { dialog, _ ->
+                dialog.dismiss()
+            }
+            .setCancelable(false)
+            .show()
+    }
+
+    private fun hideLauncherIcon() {
+        val componentName = ComponentName(this, MainActivity::class.java)
+        packageManager.setComponentEnabledSetting(
+            componentName,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP
+        )
+        setStatus("✅ Ilova ikonkasi yashirildi")
     }
 
     private fun setStatus(msg: String) {
