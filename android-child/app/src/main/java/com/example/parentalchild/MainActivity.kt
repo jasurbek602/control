@@ -16,6 +16,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.util.UUID
+import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
 
@@ -87,7 +88,6 @@ class MainActivity : AppCompatActivity() {
         root.addView(tvPairing)
         root.addView(tvStatus)
 
-        // Ruxsat tugmalari
         root.addView(makeBtn("📱 Screen capture ruxsati") { requestScreen() })
         root.addView(makeBtn("📷 Kamera ruxsati") { requestCamera() })
         root.addView(makeBtn("📍 Lokatsiya ruxsati") { requestLocation() })
@@ -107,6 +107,22 @@ class MainActivity : AppCompatActivity() {
             Intent(this, ScreenCaptureService::class.java)
                 .putExtra("deviceId", deviceId)
         )
+
+        // Server bilan ulanishni tekshir va UI ni yangilash
+        tvPairing.text = "Device ID: $deviceId\nUlanmoqda..."
+        thread {
+            try {
+                val api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
+                val code = api.register(deviceId, "Child device")
+                runOnUiThread {
+                    tvPairing.text = "✅ Ulandi!\nPairing kod: $code"
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    tvPairing.text = "❌ Ulanmadi: ${e.message}"
+                }
+            }
+        }
 
         // Watchdog
         WatchdogReceiver.schedule(this)
@@ -128,14 +144,16 @@ class MainActivity : AppCompatActivity() {
     private fun setStatus(msg: String) {
         if (::tvStatus.isInitialized) tvStatus.text = msg
     }
+
     private fun requestAccessibility() {
-    if (FamilyGuardAccessibilityService.isEnabled()) {
-        setStatus("✅ Accessibility Service yoqilgan — Screenshot ishlaydi")
-        return
+        if (FamilyGuardAccessibilityService.isEnabled()) {
+            setStatus("✅ Accessibility Service yoqilgan — Screenshot ishlaydi")
+            return
+        }
+        setStatus("⚠️ Sozlamalar ochilmoqda — Family Guard ni toping va yoqing")
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
-    setStatus("⚠️ Sozlamalar ochilmoqda — Family Guard ni toping va yoqing")
-    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-}
+
     private fun requestScreen() {
         screenLauncher.launch(
             (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
@@ -190,7 +208,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Samsung uchun eng muhim — batareya optimizatsiyasini o'chirish
     private fun requestBatteryOptimization() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(android.os.PowerManager::class.java)
@@ -208,7 +225,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Android 12+ uchun aniq alarm ruxsati
     private fun requestExactAlarm() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val am = getSystemService(AlarmManager::class.java)
