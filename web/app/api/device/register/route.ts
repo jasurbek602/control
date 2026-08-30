@@ -64,8 +64,14 @@ export async function DELETE(req: Request) {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
     const d = await db();
+
+    const dev = await d.collection('devices').findOne({ _id: new ObjectId(id) });
     await d.collection('devices').deleteOne({ _id: new ObjectId(id) });
-    await d.collection('requests').deleteMany({ deviceId: id });
+
+    if (dev) {
+      await d.collection('requests').deleteMany({ deviceId: dev.deviceId });
+    }
+
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
