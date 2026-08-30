@@ -112,11 +112,102 @@ const S = {
     fontSize: 12,
     color: '#cbd5e1',
     fontWeight: 500,
-    transition: 'all 0.2s',
   } as React.CSSProperties,
 };
 
+// ─── Login ekrani ─────────────────────────────────────────────
+function LoginScreen({ onLogin }: { onLogin: () => void }) {
+  const [pwd, setPwd]     = useState('');
+  const [err, setErr]     = useState('');
+  const [busy, setBusy]   = useState(false);
+  const [show, setShow]   = useState(false);
+
+  async function login() {
+    if (!pwd.trim()) return;
+    setBusy(true); setErr('');
+    const res = await fetch('/api/auth', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: pwd }),
+    });
+    setBusy(false);
+    if (res.ok) { onLogin(); }
+    else {
+      const d = await res.json();
+      setErr(d.error ?? 'Xato');
+      setPwd('');
+    }
+  }
+
+  return (
+    <div style={{
+      ...S.page,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      minHeight: '100vh',
+    }}>
+      <div style={{
+        background: 'rgba(255,255,255,0.05)',
+        backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.12)',
+        borderRadius: 24,
+        padding: '48px 40px',
+        width: '100%',
+        maxWidth: 380,
+        textAlign: 'center',
+      }}>
+        <div style={{ fontSize: 52, marginBottom: 16 }}>🛡️</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>Family Guard</div>
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 32 }}>Kirish uchun parolni kiriting</div>
+
+        <div style={{ position: 'relative', marginBottom: 16 }}>
+          <input
+            type={show ? 'text' : 'password'}
+            placeholder="Parol"
+            value={pwd}
+            onChange={e => setPwd(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && login()}
+            autoFocus
+            style={{
+              ...S.input,
+              width: '100%',
+              boxSizing: 'border-box',
+              fontSize: 16,
+              letterSpacing: show ? 0 : 4,
+              paddingRight: 44,
+            }}
+          />
+          <button
+            onClick={() => setShow(s => !s)}
+            style={{
+              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+              background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#64748b',
+            }}>
+            {show ? '🙈' : '👁'}
+          </button>
+        </div>
+
+        {err && (
+          <div style={{ color: '#f87171', fontSize: 13, marginBottom: 14, background: 'rgba(248,113,113,0.1)', padding: '8px 12px', borderRadius: 8 }}>
+            ❌ {err}
+          </div>
+        )}
+
+        <button
+          onClick={login}
+          disabled={busy || !pwd.trim()}
+          style={{ ...S.btnPrimary, width: '100%', opacity: busy || !pwd.trim() ? 0.5 : 1, fontSize: 15, padding: '13px 0' }}>
+          {busy ? 'Tekshirilmoqda...' : 'Kirish →'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Asosiy komponent ─────────────────────────────────────────
 export default function Home() {
+  const [auth, setAuth]         = useState<null | boolean>(null); // null=loading
   const [devices, setDevices]   = useState<Device[]>([]);
   const [requests, setRequests] = useState<Req[]>([]);
   const [pairCode, setPairCode] = useState('');
@@ -127,6 +218,16 @@ export default function Home() {
   const [loadingId, setLoadingId]   = useState<string|null>(null);
   const [deletingId, setDeletingId] = useState<string|null>(null);
   const prevDoneIds = useRef<Set<string>>(new Set());
+
+  // Auth tekshirish
+  useEffect(() => {
+    fetch('/api/auth').then(r => setAuth(r.ok)).catch(() => setAuth(false));
+  }, []);
+
+  async function logout() {
+    await fetch('/api/auth', { method: 'DELETE' });
+    setAuth(false);
+  }
 
   function playBeep() {
     try {
@@ -153,10 +254,11 @@ export default function Home() {
   }
 
   useEffect(() => {
+    if (!auth) return;
     refresh();
     const t = setInterval(refresh, 5000);
     return () => clearInterval(t);
-  }, []);
+  }, [auth]);
 
   async function connect() {
     if (!pairCode.trim()) return;
@@ -177,8 +279,7 @@ export default function Home() {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ id }),
     });
-    setDeletingId(null);
-    refresh();
+    setDeletingId(null); refresh();
   }
 
   async function deleteAllOffline() {
@@ -214,7 +315,7 @@ export default function Home() {
   }
 
   async function clearAll() {
-    if (!confirm('Barcha so\'rovlarni o\'chirishni xohlaysizmi?')) return;
+    if (!confirm("Barcha so'rovlarni o'chirishni xohlaysizmi?")) return;
     await fetch('/api/request', {
       method: 'DELETE',
       headers: { 'content-type': 'application/json' },
@@ -233,7 +334,7 @@ export default function Home() {
     }
     if (isJsonType(r.type)) {
       try {
-        const res = await fetch(r.resultUrl);
+        const res  = await fetch(r.resultUrl);
         const data: AppEntry[] = await res.json();
         setModal({ kind: r.type === 'APP_LIST' ? 'apps' : 'usage', data });
       } catch (_) {}
@@ -242,6 +343,18 @@ export default function Home() {
     setModal({ kind: 'image', url: r.resultUrl });
     setLoadingId(null);
   }
+
+  // ── Loading ──
+  if (auth === null) {
+    return (
+      <div style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ fontSize: 40 }}>⏳</div>
+      </div>
+    );
+  }
+
+  // ── Login ekrani ──
+  if (!auth) return <LoginScreen onLogin={() => setAuth(true)} />;
 
   const filtered = requests.filter(r => filter === 'ALL' || r.status === filter);
   const counts = {
@@ -271,9 +384,20 @@ export default function Home() {
           <div style={{ fontSize: 18, fontWeight: 700, color: '#f1f5f9' }}>Family Guard</div>
           <div style={{ fontSize: 11, color: '#64748b' }}>Ota-ona nazorat paneli</div>
         </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block' }}/>
-          <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d=>d.online).length} online</span>
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block' }}/>
+            <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d=>d.online).length} online</span>
+          </div>
+          <button onClick={logout} style={{
+            ...S.btnAction,
+            color: '#f87171',
+            borderColor: 'rgba(248,113,113,0.3)',
+            background: 'rgba(248,113,113,0.08)',
+            fontSize: 12,
+          }}>
+            🚪 Chiqish
+          </button>
         </div>
       </header>
 
@@ -313,11 +437,8 @@ export default function Home() {
           <div key={d._id} style={{
             ...S.card,
             borderColor: d.online ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.07)',
-            background: d.online
-              ? 'rgba(16,185,129,0.05)'
-              : 'rgba(255,255,255,0.03)',
+            background: d.online ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)',
           }}>
-            {/* Device header */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <div style={{ position: 'relative' }}>
                 <span style={{ fontSize: 32 }}>📱</span>
@@ -326,8 +447,7 @@ export default function Home() {
                   width: 10, height: 10, borderRadius: '50%',
                   background: d.online ? '#10b981' : '#475569',
                   boxShadow: d.online ? '0 0 8px #10b981' : 'none',
-                  border: '2px solid #1a1a2e',
-                  display: 'block',
+                  border: '2px solid #1a1a2e', display: 'block',
                 }}/>
               </div>
               <div style={{ flex: 1 }}>
@@ -336,36 +456,24 @@ export default function Home() {
                   {d.online ? '🟢 Online' : `⚫ Offline · ${timeAgo(d.lastSeen)}`}
                 </div>
               </div>
-
-              {/* Battery */}
               {d.battery != null && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.06)', padding: '4px 10px', borderRadius: 8 }}>
                   <div style={{ width: 22, height: 11, border: `1.5px solid ${batteryColor(d.battery)}`, borderRadius: 3, position: 'relative' }}>
                     <div style={{ position: 'absolute', right: -4, top: '50%', transform: 'translateY(-50%)', width: 3, height: 5, background: batteryColor(d.battery), borderRadius: '0 2px 2px 0' }}/>
-                    <div style={{ height: '100%', width: `${d.battery}%`, background: batteryColor(d.battery), borderRadius: 2, transition: 'width 0.5s' }}/>
+                    <div style={{ height: '100%', width: `${d.battery}%`, background: batteryColor(d.battery), borderRadius: 2 }}/>
                   </div>
                   <span style={{ fontSize: 12, fontWeight: 600, color: batteryColor(d.battery) }}>{d.battery}%</span>
                 </div>
               )}
-
-              {/* O'chirish */}
-              <button onClick={() => deleteDevice(d._id, d.name)}
-                disabled={deletingId === d._id}
+              <button onClick={() => deleteDevice(d._id, d.name)} disabled={deletingId === d._id}
                 style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
-                {deletingId === d._id ? '...' : '🗑 O\'chirish'}
+                {deletingId === d._id ? '...' : "🗑 O'chirish"}
               </button>
             </div>
-
-            {/* Tugmalar */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {BTNS.map(({ type, label }) => (
-                <button key={type} onClick={() => sendReq(d.deviceId, type)}
-                  disabled={!d.online}
-                  style={{
-                    ...S.btnAction,
-                    opacity: d.online ? 1 : 0.4,
-                    cursor: d.online ? 'pointer' : 'not-allowed',
-                  }}>
+                <button key={type} onClick={() => sendReq(d.deviceId, type)} disabled={!d.online}
+                  style={{ ...S.btnAction, opacity: d.online ? 1 : 0.4, cursor: d.online ? 'pointer' : 'not-allowed' }}>
                   {label}
                 </button>
               ))}
@@ -387,19 +495,15 @@ export default function Home() {
             )}
           </div>
 
-          {/* Filter */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
             {(['ALL','PENDING','DONE','FAILED'] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)}
-                style={{
-                  padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  border: filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                  background: filter === f
-                    ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
-                    : 'rgba(255,255,255,0.05)',
-                  color: filter === f ? '#fff' : '#64748b',
-                  boxShadow: filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
-                }}>
+              <button key={f} onClick={() => setFilter(f)} style={{
+                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                border: filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                background: filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
+                color: filter === f ? '#fff' : '#64748b',
+                boxShadow: filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
+              }}>
                 {f} {counts[f] > 0 && <span style={{ opacity: 0.8 }}>({counts[f]})</span>}
               </button>
             ))}
@@ -423,7 +527,6 @@ export default function Home() {
                 ) : (
                   <span style={{ width: 52, textAlign: 'center', fontSize: 24, flexShrink: 0 }}>{meta.icon}</span>
                 )}
-
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{meta.label}</span>
@@ -436,11 +539,10 @@ export default function Home() {
                     {dev?.name ?? r.deviceId.slice(0,8)} · {timeAgo(r.createdAt)}
                   </div>
                 </div>
-
                 {hasResult && (
                   <button onClick={() => openResult(r)} disabled={loadingId === r._id}
                     style={{ ...S.btnPrimary, padding: '5px 12px', fontSize: 12, flexShrink: 0 }}>
-                    {loadingId === r._id ? '...' : 'Ko\'rish'}
+                    {loadingId === r._id ? '...' : "Ko'rish"}
                   </button>
                 )}
                 <button onClick={() => deleteReq(r._id)}
@@ -513,21 +615,21 @@ export default function Home() {
                 <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Eng ko'p ishlatiladigan ilovalar</p>
                 <div style={{ display: 'grid', gap: 8 }}>
                   {modal.data.map((app, i) => {
-                    const max   = modal.data[0]?.minutes ?? 1;
-                    const pct   = Math.round(((app.minutes ?? 0) / max) * 100);
-                    const hours = Math.floor((app.minutes ?? 0) / 60);
-                    const mins  = (app.minutes ?? 0) % 60;
-                    const label = hours > 0 ? `${hours}s ${mins}d` : `${mins} daqiqa`;
-                    const colors = ['#6366f1','#8b5cf6','#06b6d4','#10b981','#f59e0b'];
-                    const clr = colors[i % colors.length];
+                    const max  = modal.data[0]?.minutes ?? 1;
+                    const pct  = Math.round(((app.minutes ?? 0) / max) * 100);
+                    const h    = Math.floor((app.minutes ?? 0) / 60);
+                    const m    = (app.minutes ?? 0) % 60;
+                    const lbl  = h > 0 ? `${h}s ${m}d` : `${m} daqiqa`;
+                    const clrs = ['#6366f1','#8b5cf6','#06b6d4','#10b981','#f59e0b'];
+                    const clr  = clrs[i % clrs.length];
                     return (
                       <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                           <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{app.name}</span>
-                          <span style={{ fontSize: 12, color: clr, fontWeight: 700 }}>{label}</span>
+                          <span style={{ fontSize: 12, color: clr, fontWeight: 700 }}>{lbl}</span>
                         </div>
                         <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: clr, borderRadius: 3, boxShadow: `0 0 8px ${clr}80` }}/>
+                          <div style={{ height: '100%', width: `${pct}%`, background: clr, borderRadius: 3 }}/>
                         </div>
                       </div>
                     );
