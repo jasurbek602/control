@@ -31,6 +31,7 @@ class FamilyGuardAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {}
+
     override fun onInterrupt() {}
 
     override fun onDestroy() {
@@ -40,7 +41,7 @@ class FamilyGuardAccessibilityService : AccessibilityService() {
 
     @RequiresApi(Build.VERSION_CODES.R)
     fun captureScreen(): String? {
-        val latch   = CountDownLatch(1)
+        val latch = CountDownLatch(1)
         var result: String? = null
         val executor = Executor { it.run() }
 
@@ -51,11 +52,10 @@ class FamilyGuardAccessibilityService : AccessibilityService() {
                 override fun onSuccess(screenshot: ScreenshotResult) {
                     try {
                         val bitmap = Bitmap.wrapHardwareBuffer(
-                            screenshot.hardwareBitmap,
-                            null
+                            screenshot.hardwareBuffer,
+                            screenshot.colorSpace
                         )?.copy(Bitmap.Config.ARGB_8888, false)
-                        screenshot.hardwareBitmap.close()
-
+                        screenshot.hardwareBuffer.close()
                         if (bitmap != null) {
                             val out = ByteArrayOutputStream()
                             bitmap.compress(Bitmap.CompressFormat.JPEG, 70, out)
