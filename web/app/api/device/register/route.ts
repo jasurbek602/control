@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomBytes } from 'node:crypto';
+import { ObjectId } from 'mongodb';
 import { db } from '@/lib/db';
 import { assertDeviceSecret } from '@/lib/auth';
 
@@ -40,7 +41,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ error: 'Bad request' }, { status: 400 });
-    } catch (e) {
+  } catch (e) {
     return NextResponse.json({ error: 'DEBUG: ' + (e instanceof Error ? e.message : String(e)) }, { status: 401 });
   }
 }
@@ -55,4 +56,18 @@ export async function GET() {
       online: Date.now() - new Date(x.lastSeen ?? 0).getTime() < 15000,
     })),
   });
+}
+
+// Qurilmani o'chirish
+export async function DELETE(req: Request) {
+  try {
+    const { id } = await req.json();
+    if (!id) return NextResponse.json({ error: 'id kerak' }, { status: 400 });
+    const d = await db();
+    await d.collection('devices').deleteOne({ _id: new ObjectId(id) });
+    await d.collection('requests').deleteMany({ deviceId: id });
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
 }
