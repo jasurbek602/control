@@ -2,7 +2,7 @@ package com.example.parentalchild
 
 import android.Manifest
 import android.content.ComponentName
-import android.content.pm.PackageManager
+
 import androidx.appcompat.app.AlertDialog
 import android.app.Activity
 import android.app.AlarmManager
