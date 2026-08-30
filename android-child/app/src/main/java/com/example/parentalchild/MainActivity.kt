@@ -128,7 +128,14 @@ class MainActivity : AppCompatActivity() {
     private fun setStatus(msg: String) {
         if (::tvStatus.isInitialized) tvStatus.text = msg
     }
-
+    private fun requestAccessibility() {
+    if (FamilyGuardAccessibilityService.isEnabled()) {
+        setStatus("✅ Accessibility Service yoqilgan — Screenshot ishlaydi")
+        return
+    }
+    setStatus("⚠️ Sozlamalar ochilmoqda — Family Guard ni toping va yoqing")
+    startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+}
     private fun requestScreen() {
         screenLauncher.launch(
             (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
