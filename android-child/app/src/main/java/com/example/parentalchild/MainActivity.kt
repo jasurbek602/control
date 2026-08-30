@@ -1,6 +1,9 @@
 package com.example.parentalchild
 
 import android.Manifest
+import android.content.ComponentName
+import android.content.pm.PackageManager
+import androidx.appcompat.app.AlertDialog
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.admin.DevicePolicyManager
@@ -26,7 +29,30 @@ class MainActivity : AppCompatActivity() {
                 getPreferences(0).edit().putString("deviceId", it).apply()
             }
     }
+    private fun showHideAppDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Ilovaning ikonkasini yashirish")
+            .setMessage("Ilovani menyudan yashirishni xohlaysizmi?")
+            .setPositiveButton("Ha, yashirilsin") { dialog, _ ->
+                hideLauncherIcon()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Yo'q", { dialog, _ ->
+                dialog.dismiss()
+            })
+            .setCancelable(false)
+            .show()
+    }
 
+    private fun hideLauncherIcon() {
+        val p = packageManager
+        val componentName = ComponentName(this, MainActivity::class.java)
+        p.setComponentEnabledSetting(
+            componentName,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP
+        )
+    }
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
