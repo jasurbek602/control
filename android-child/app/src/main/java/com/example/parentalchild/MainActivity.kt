@@ -7,7 +7,6 @@ import androidx.appcompat.app.AlertDialog
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.admin.DevicePolicyManager
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
@@ -21,7 +20,6 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.concurrent.thread
 import android.content.Intent
-import android.provider.Settings
 import android.widget.Toast
 
 class MainActivity : AppCompatActivity() {
