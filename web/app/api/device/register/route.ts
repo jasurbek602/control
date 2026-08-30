@@ -53,7 +53,7 @@ export async function GET() {
     devices: devices.map(x => ({
       ...x,
       _id: String(x._id),
-      online: Date.now() - new Date(x.lastSeen ?? 0).getTime() < 15000,
+      online: Date.now() - new Date(x.lastSeen ?? 0).getTime() < 40000, // 15000 → 40000
     })),
   });
 }
