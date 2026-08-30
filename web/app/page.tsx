@@ -61,6 +61,7 @@ export default function Home() {
   const [modal, setModal]       = useState<ModalContent | null>(null);
   const [filter, setFilter]     = useState<'ALL'|'PENDING'|'DONE'|'FAILED'>('ALL');
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const prevDoneIds = useRef<Set<string>>(new Set());
 
   function playBeep() {
@@ -102,6 +103,19 @@ export default function Home() {
       body: JSON.stringify({ pairingCode: pairCode.trim(), name }),
     });
     setBusy(false); setPairCode(''); refresh();
+  }
+
+  // Qurilmani o'chirish
+  async function disconnectDevice(id: string, deviceName: string) {
+    if (!confirm(`"${deviceName}" qurilmasini uzmoqchimisiz?\nBarcha so'rovlar ham o'chadi.`)) return;
+    setDisconnecting(id);
+    await fetch('/api/device/register', {
+      method: 'DELETE',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setDisconnecting(null);
+    refresh();
   }
 
   async function sendReq(deviceId: string, type: string) {
@@ -210,10 +224,27 @@ export default function Home() {
             <h3 style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{d.name}</h3>
             <span style={{ fontSize: 12, color: d.online ? '#10b981' : '#9ca3af', fontWeight: 500 }}>{d.online ? 'online' : 'offline'}</span>
             {d.battery != null && (
-              <span style={{ fontSize: 13, color: '#6b7280', marginLeft: 'auto' }}>
+              <span style={{ fontSize: 13, color: '#6b7280' }}>
                 {batteryIcon(d.battery)} {d.battery}%
               </span>
             )}
+            {/* Uzish tugmasi */}
+            <button
+              onClick={() => disconnectDevice(d._id, d.name)}
+              disabled={disconnecting === d._id}
+              style={{
+                marginLeft: 'auto',
+                padding: '5px 12px',
+                background: 'none',
+                border: '1px solid #fca5a5',
+                borderRadius: 8,
+                cursor: disconnecting === d._id ? 'not-allowed' : 'pointer',
+                fontSize: 12,
+                color: '#ef4444',
+                fontWeight: 600,
+              }}>
+              {disconnecting === d._id ? '...' : '🔌 Uzish'}
+            </button>
           </div>
           <p style={{ fontSize: 11, color: '#9ca3af', margin: '0 0 16px' }}>
             Oxirgi: {timeAgo(d.lastSeen)}
@@ -240,7 +271,6 @@ export default function Home() {
           )}
         </div>
 
-        {/* Filter */}
         <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
           {(['ALL','PENDING','DONE','FAILED'] as const).map(f => (
             <button key={f} onClick={() => setFilter(f)}
@@ -261,18 +291,15 @@ export default function Home() {
           const hasResult = r.resultUrl && r.status === 'DONE';
           return (
             <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 0', borderBottom: '1px solid #f3f4f6' }}>
-              {/* Thumbnail / icon */}
               {hasResult && isImageType(r.type) ? (
                 <img src={r.resultUrl} alt="" onClick={() => openResult(r)}
                   style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', flexShrink: 0, border: '1px solid #e5e7eb' }}/>
               ) : (
                 <span style={{ width: 48, textAlign: 'center', fontSize: 22, flexShrink: 0 }}>{meta.icon}</span>
               )}
-
               <span style={{ fontSize: 13, fontWeight: 500, minWidth: 120 }}>{meta.label}</span>
               <span style={{ fontSize: 12, fontWeight: 700, color: STATUS_COLOR[r.status] ?? '#6b7280', minWidth: 55 }}>{r.status}</span>
               <span style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{timeAgo(r.createdAt)}</span>
-
               {hasResult && (
                 <button onClick={() => openResult(r)} disabled={loadingId === r._id}
                   style={{ padding: '4px 10px', background: '#2563eb', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>
@@ -287,95 +314,3 @@ export default function Home() {
       </section>
 
       {/* Modal */}
-      {modal && (
-        <div onClick={() => setModal(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
-
-            {/* Yopish tugmasi */}
-            <button onClick={() => setModal(null)}
-              style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: '#f3f4f6', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, zIndex: 10 }}>×</button>
-
-            {/* Rasm */}
-            {modal.kind === 'image' && (
-              <div style={{ padding: 0 }}>
-                <img src={modal.url} alt="result" style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }}/>
-                <div style={{ padding: '12px 16px' }}>
-                  <a href={modal.url} download target="_blank"
-                    style={{ background: '#2563eb', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: 13, textDecoration: 'none', fontWeight: 600 }}>
-                    ⬇ Yuklab olish
-                  </a>
-                </div>
-              </div>
-            )}
-
-            {/* Lokatsiya xaritasi */}
-            {modal.kind === 'map' && (
-              <div style={{ padding: 24 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 16px' }}>📍 Bolaning joylashuvi</h3>
-                <iframe
-                  src={`https://maps.google.com/maps?q=${modal.lat},${modal.lng}&z=16&output=embed`}
-                  width="100%" height="400"
-                  style={{ border: 'none', borderRadius: 12, display: 'block', minWidth: 320 }}/>
-                <div style={{ marginTop: 12, display: 'flex', gap: 10 }}>
-                  <a href={`https://maps.google.com/?q=${modal.lat},${modal.lng}`} target="_blank"
-                    style={{ background: '#2563eb', color: '#fff', padding: '8px 18px', borderRadius: 8, fontSize: 13, textDecoration: 'none', fontWeight: 600 }}>
-                    🗺 Google Maps da ochish
-                  </a>
-                  <span style={{ fontSize: 12, color: '#9ca3af', alignSelf: 'center' }}>
-                    {modal.lat.toFixed(6)}, {modal.lng.toFixed(6)}
-                  </span>
-                </div>
-              </div>
-            )}
-
-            {/* Ilovalar ro'yxati */}
-            {modal.kind === 'apps' && (
-              <div style={{ padding: 24, minWidth: 360 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>📋 O'rnatilgan ilovalar</h3>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
-                <div style={{ display: 'grid', gap: 4 }}>
-                  {modal.data.map((app, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: i % 2 === 0 ? '#f9fafb' : '#fff', borderRadius: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, flex: 1 }}>{app.name}</span>
-                      <span style={{ fontSize: 11, color: '#9ca3af' }}>{app.package}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Foydalanish vaqti */}
-            {modal.kind === 'usage' && (
-              <div style={{ padding: 24, minWidth: 400 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 600, margin: '0 0 4px' }}>📊 So'nggi 24 soat foydalanish</h3>
-                <p style={{ fontSize: 13, color: '#9ca3af', margin: '0 0 16px' }}>Eng ko'p ishlatiladigan ilovalar</p>
-                <div style={{ display: 'grid', gap: 6 }}>
-                  {modal.data.map((app, i) => {
-                    const max   = modal.data[0]?.minutes ?? 1;
-                    const pct   = Math.round(((app.minutes ?? 0) / max) * 100);
-                    const hours = Math.floor((app.minutes ?? 0) / 60);
-                    const mins  = (app.minutes ?? 0) % 60;
-                    const label = hours > 0 ? `${hours}s ${mins}d` : `${mins} daqiqa`;
-                    return (
-                      <div key={i} style={{ padding: '8px 12px', background: '#f9fafb', borderRadius: 8 }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 13, fontWeight: 500 }}>{app.name}</span>
-                          <span style={{ fontSize: 12, color: '#6b7280', fontWeight: 600 }}>{label}</span>
-                        </div>
-                        <div style={{ height: 6, background: '#e5e7eb', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: '#2563eb', borderRadius: 3 }}/>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </main>
-  );
-}
