@@ -21,7 +21,10 @@
 <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
   <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
-  <application android:theme="@style/Theme.Child" android:label="Family Guard">
+  <application android:theme="@style/Theme.Child" <service
+    android:name=".ScreenCaptureService"
+    android:exported="false"
+    android:foregroundServiceType="mediaProjection|camera|location" /> android:label="Family Guard">
 
     <receiver android:name=".DeviceAdminReceiver"
       android:label="Family Guard"
