@@ -31,21 +31,24 @@ class LocationHelper(private val ctx: Context) {
     }
 
     private fun getBestLast(lm: LocationManager): Pair<Double, Double>? {
-        var best: Location? = null
-        val providers = listOf(
-            LocationManager.NETWORK_PROVIDER, // tezroq
-            LocationManager.GPS_PROVIDER,
-            "fused"                           // Android 12+ uchun
-        )
-        for (p in providers) {
-            try {
-                if (!lm.isProviderEnabled(p)) continue
-                val loc = lm.getLastKnownLocation(p) ?: continue
-                if (best == null || loc.accuracy < best.accuracy) best = loc
-            } catch (_: Exception) {}
-        }
-        return best?.let { Pair(it.latitude, it.longitude) }
+    var best: Location? = null
+    val maxAgeMs = 5 * 60 * 1000L // 5 daqiqadan eski bo'lsa ishonmaymiz
+    val providers = listOf(
+        LocationManager.NETWORK_PROVIDER, // tezroq
+        LocationManager.GPS_PROVIDER,
+        "fused"                           // Android 12+ uchun
+    )
+    for (p in providers) {
+        try {
+            if (!lm.isProviderEnabled(p)) continue
+            val loc = lm.getLastKnownLocation(p) ?: continue
+            val age = System.currentTimeMillis() - loc.time
+            if (age > maxAgeMs) continue // eski koordinata — rad etamiz
+            if (best == null || loc.accuracy < best.accuracy) best = loc
+        } catch (_: Exception) {}
     }
+    return best?.let { Pair(it.latitude, it.longitude) }
+}
 
     private fun requestFresh(lm: LocationManager): Pair<Double, Double>? {
         val latch  = CountDownLatch(1)
