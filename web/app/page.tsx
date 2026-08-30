@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
-const [activeTab, setActiveTab,call_logs,sms_logs] = useState<'overview' | 'live' | 'apps' | 'telephony'>('overview');
+
 type Device = {
   _id: string; name: string; deviceId: string;
   pairingCode: string; online: boolean;
@@ -10,35 +10,54 @@ type Req = {
   _id: string; deviceId: string; type: string;
   status: string; createdAt: string; resultUrl?: string;
 };
-type AppEntry = { number: string; name?: string; type?: string; duration?: number; date?: string; body?: string };
+type AppEntry    = { name: string; package?: string; minutes?: number };
+type CallItem    = { number: string; type: string; duration: number; date: number };
+type SmsItem     = { address: string; body: string; type: string; date: number };
+type NotifItem   = { pkg: string; title: string; text: string; time: number };
+
 type ModalContent =
-  | { kind: 'image'; url: string }
-  | { kind: 'map'; lat: number; lng: number }
-  | { kind: 'apps'; data: AppEntry[] }
-  | { kind: 'usage'; data: AppEntry[] }
-  | { kind: 'calls'; data: LogEntry[] }
-  | { kind: 'sms'; data: LogEntry[] };
+  | { kind: 'image';  url: string }
+  | { kind: 'map';    lat: number; lng: number }
+  | { kind: 'apps';   data: AppEntry[] }
+  | { kind: 'usage';  data: AppEntry[] }
+  | { kind: 'calls';  data: CallItem[] }
+  | { kind: 'sms';    data: SmsItem[] }
+  | { kind: 'notifs'; data: NotifItem[] };
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
 };
+
 const TYPE_META: Record<string, { icon: string; label: string }> = {
-  SCREENSHOT:   { icon: '📸', label: 'Screenshot' },
-  CAMERA_FRONT: { icon: '🤳', label: 'Oldingi kamera' },
-  CAMERA_BACK:  { icon: '📷', label: 'Orqa kamera' },
-  SCREEN_SHARE: { icon: '🖥️', label: 'Screen share' },
-  LOCATION:     { icon: '📍', label: 'Lokatsiya' },
-  APP_LIST:     { icon: '📋', label: 'Ilovalar' },
-  APP_USAGE:    { icon: '📊', label: 'Foydalanish' },
-  CALL_LOGS:    { icon: '📞', label: "Qo'ng'iroqlar" },
-  SMS_LOGS:     { icon: '💬', label: 'SMS xabarlar' },
+  SCREENSHOT:        { icon: '📸', label: 'Screenshot' },
+  CAMERA_FRONT:      { icon: '🤳', label: 'Oldingi kamera' },
+  CAMERA_BACK:       { icon: '📷', label: 'Orqa kamera' },
+  SCREEN_SHARE:      { icon: '🖥️', label: 'Screen share' },
+  LOCATION:          { icon: '📍', label: 'Lokatsiya' },
+  APP_LIST:          { icon: '📋', label: 'Ilovalar' },
+  APP_USAGE:         { icon: '📊', label: 'Foydalanish' },
+  CALL_LOGS:         { icon: '📞', label: "Qo'ng'iroqlar" },
+  SMS_LOGS:          { icon: '💬', label: 'SMS' },
   NOTIFICATION_LOGS: { icon: '🔔', label: 'Bildirishnomalar' },
 };
 
+const BTNS = [
+  { type: 'SCREENSHOT',        label: '📸 Screenshot' },
+  { type: 'CAMERA_FRONT',      label: '🤳 Selfie' },
+  { type: 'CAMERA_BACK',       label: '📷 Orqa kamera' },
+  { type: 'SCREEN_SHARE',      label: '🖥️ Screen share' },
+  { type: 'LOCATION',          label: '📍 Lokatsiya' },
+  { type: 'APP_LIST',          label: '📋 Ilovalar' },
+  { type: 'APP_USAGE',         label: '📊 Foydalanish' },
+  { type: 'CALL_LOGS',         label: "📞 Qo'ng'iroqlar" },
+  { type: 'SMS_LOGS',          label: '💬 SMS' },
+  { type: 'NOTIFICATION_LOGS', label: '🔔 Bildirishnomalar' },
+];
+
 function timeAgo(dateStr: string) {
   const sec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
-  if (sec < 60) return `${sec}s oldin`;
-  if (sec < 3600) return `${Math.floor(sec / 60)}d oldin`;
+  if (sec < 60)    return `${sec}s oldin`;
+  if (sec < 3600)  return `${Math.floor(sec / 60)}d oldin`;
   if (sec < 86400) return `${Math.floor(sec / 3600)}s oldin`;
   return `${Math.floor(sec / 86400)}k oldin`;
 }
@@ -120,12 +139,12 @@ const S = {
   } as React.CSSProperties,
 };
 
-// ─── Login ekrani ─────────────────────────────────────────────
+// ─── Login ekrani ──────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
-  const [pwd, setPwd]     = useState('');
-  const [err, setErr]     = useState('');
-  const [busy, setBusy]   = useState(false);
-  const [show, setShow]   = useState(false);
+  const [pwd,  setPwd]  = useState('');
+  const [err,  setErr]  = useState('');
+  const [busy, setBusy] = useState(false);
+  const [show, setShow] = useState(false);
 
   async function login() {
     if (!pwd.trim()) return;
@@ -145,22 +164,11 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   }
 
   return (
-    <div style={{
-      ...S.page,
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      minHeight: '100vh',
-    }}>
+    <div style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div style={{
-        background: 'rgba(255,255,255,0.05)',
-        backdropFilter: 'blur(20px)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 24,
-        padding: '48px 40px',
-        width: '100%',
-        maxWidth: 380,
-        textAlign: 'center',
+        background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)',
+        border: '1px solid rgba(255,255,255,0.12)', borderRadius: 24,
+        padding: '48px 40px', width: '100%', maxWidth: 380, textAlign: 'center',
       }}>
         <div style={{ fontSize: 52, marginBottom: 16 }}>🛡️</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>Family Guard</div>
@@ -174,21 +182,12 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             onChange={e => setPwd(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && login()}
             autoFocus
-            style={{
-              ...S.input,
-              width: '100%',
-              boxSizing: 'border-box',
-              fontSize: 16,
-              letterSpacing: show ? 0 : 4,
-              paddingRight: 44,
-            }}
+            style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 16, letterSpacing: show ? 0 : 4, paddingRight: 44 }}
           />
-          <button
-            onClick={() => setShow(s => !s)}
-            style={{
-              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-              background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#64748b',
-            }}>
+          <button onClick={() => setShow(s => !s)} style={{
+            position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+            background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#64748b',
+          }}>
             {show ? '🙈' : '👁'}
           </button>
         </div>
@@ -199,9 +198,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
           </div>
         )}
 
-        <button
-          onClick={login}
-          disabled={busy || !pwd.trim()}
+        <button onClick={login} disabled={busy || !pwd.trim()}
           style={{ ...S.btnPrimary, width: '100%', opacity: busy || !pwd.trim() ? 0.5 : 1, fontSize: 15, padding: '13px 0' }}>
           {busy ? 'Tekshirilmoqda...' : 'Kirish →'}
         </button>
@@ -210,21 +207,20 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-// ─── Asosiy komponent ─────────────────────────────────────────
+// ─── Asosiy komponent ──────────────────────────────────────────
 export default function Home() {
-  const [auth, setAuth]         = useState<null | boolean>(null); // null=loading
-  const [devices, setDevices]   = useState<Device[]>([]);
-  const [requests, setRequests] = useState<Req[]>([]);
-  const [pairCode, setPairCode] = useState('');
-  const [name, setName]         = useState('My child');
-  const [busy, setBusy]         = useState(false);
-  const [modal, setModal]       = useState<ModalContent | null>(null);
-  const [filter, setFilter]     = useState<'ALL'|'PENDING'|'DONE'|'FAILED'>('ALL');
-  const [loadingId, setLoadingId]   = useState<string|null>(null);
+  const [auth,       setAuth]       = useState<null | boolean>(null);
+  const [devices,    setDevices]    = useState<Device[]>([]);
+  const [requests,   setRequests]   = useState<Req[]>([]);
+  const [pairCode,   setPairCode]   = useState('');
+  const [name,       setName]       = useState('My child');
+  const [busy,       setBusy]       = useState(false);
+  const [modal,      setModal]      = useState<ModalContent | null>(null);
+  const [filter,     setFilter]     = useState<'ALL'|'PENDING'|'DONE'|'FAILED'>('ALL');
+  const [loadingId,  setLoadingId]  = useState<string|null>(null);
   const [deletingId, setDeletingId] = useState<string|null>(null);
   const prevDoneIds = useRef<Set<string>>(new Set());
 
-  // Auth tekshirish
   useEffect(() => {
     fetch('/api/auth').then(r => setAuth(r.ok)).catch(() => setAuth(false));
   }, []);
@@ -236,8 +232,8 @@ export default function Home() {
 
   function playBeep() {
     try {
-      const ctx = new AudioContext();
-      const osc = ctx.createOscillator();
+      const ctx  = new AudioContext();
+      const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.frequency.value = 880;
@@ -332,25 +328,26 @@ export default function Home() {
   async function openResult(r: Req) {
     if (!r.resultUrl || r.status !== 'DONE') return;
     setLoadingId(r._id);
+
     if (isLatLng(r.resultUrl)) {
       const [lat, lng] = r.resultUrl.split(',').map(Number);
       setModal({ kind: 'map', lat, lng });
       setLoadingId(null); return;
     }
+
     if (isJsonType(r.type)) {
-  try {
-    const res = await fetch(r.resultUrl);
-    const data = await res.json();
-    
-    if (r.type === 'APP_LIST') setModal({ kind: 'apps', data });
-    else if (r.type === 'APP_USAGE') setModal({ kind: 'usage', data });
-    else if (r.type === 'CALL_LOGS') setModal({ kind: 'calls', data });
-    else if (r.type === 'SMS_LOGS') setModal({ kind: 'sms', data });
-    else if (r.type === 'NOTIFICATION_LOGS') setModal({ kind: 'notifications', data });
-  } catch (_) {}
-  setLoadingId(null); 
-  return;
-}
+      try {
+        const res  = await fetch(r.resultUrl);
+        const data = await res.json();
+        if      (r.type === 'APP_LIST')          setModal({ kind: 'apps',   data });
+        else if (r.type === 'APP_USAGE')         setModal({ kind: 'usage',  data });
+        else if (r.type === 'CALL_LOGS')         setModal({ kind: 'calls',  data });
+        else if (r.type === 'SMS_LOGS')          setModal({ kind: 'sms',    data });
+        else if (r.type === 'NOTIFICATION_LOGS') setModal({ kind: 'notifs', data });
+      } catch (_) {}
+      setLoadingId(null); return;
+    }
+
     setModal({ kind: 'image', url: r.resultUrl });
     setLoadingId(null);
   }
@@ -364,34 +361,20 @@ export default function Home() {
     );
   }
 
-  // ── Login ekrani ──
   if (!auth) return <LoginScreen onLogin={() => setAuth(true)} />;
 
   const filtered = requests.filter(r => filter === 'ALL' || r.status === filter);
   const counts = {
-    ALL: requests.length,
+    ALL:     requests.length,
     PENDING: requests.filter(r => r.status === 'PENDING').length,
-    DONE: requests.filter(r => r.status === 'DONE').length,
-    FAILED: requests.filter(r => r.status === 'FAILED').length,
+    DONE:    requests.filter(r => r.status === 'DONE').length,
+    FAILED:  requests.filter(r => r.status === 'FAILED').length,
   };
   const offlineCount = devices.filter(d => !d.online).length;
 
-  const BTNS = [
-    { type: 'SCREENSHOT',   label: '📸 Screenshot' },
-    { type: 'CAMERA_FRONT', label: '🤳 Selfie' },
-    { type: 'CAMERA_BACK',  label: '📷 Orqa kamera' },
-    { type: 'SCREEN_SHARE', label: '🖥️ Screen share' },
-    { type: 'LOCATION',     label: '📍 Lokatsiya' },
-    { type: 'APP_LIST',     label: '📋 Ilovalar' },
-    { type: 'APP_USAGE',    label: '📊 Foydalanish' },
-    { type: 'CALL_LOGS',    label: "📞 Qo'ng'iroqlar" }, 
-  { type: 'SMS_LOGS',     label: '💬 SMS xabarlar' }, 
-    { type: 'NOTIFICATION_LOGS', label: '🔔 Bildirishnomalar' },
-    
-  ];
-
   return (
     <div style={S.page}>
+
       {/* Header */}
       <header style={S.header}>
         <span style={{ fontSize: 24 }}>🛡️</span>
@@ -402,15 +385,9 @@ export default function Home() {
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block' }}/>
-            <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d=>d.online).length} online</span>
+            <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d => d.online).length} online</span>
           </div>
-          <button onClick={logout} style={{
-            ...S.btnAction,
-            color: '#f87171',
-            borderColor: 'rgba(248,113,113,0.3)',
-            background: 'rgba(248,113,113,0.08)',
-            fontSize: 12,
-          }}>
+          <button onClick={logout} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
             🚪 Chiqish
           </button>
         </div>
@@ -452,7 +429,7 @@ export default function Home() {
           <div key={d._id} style={{
             ...S.card,
             borderColor: d.online ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.07)',
-            background: d.online ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)',
+            background:  d.online ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <div style={{ position: 'relative' }}>
@@ -496,7 +473,7 @@ export default function Home() {
           </div>
         ))}
 
-        {/* So'rovlar */}
+        {/* So'rovlar tarixi */}
         <div style={S.card}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, flex: 1 }}>
@@ -514,10 +491,10 @@ export default function Home() {
             {(['ALL','PENDING','DONE','FAILED'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} style={{
                 padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border: filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                background: filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
-                color: filter === f ? '#fff' : '#64748b',
-                boxShadow: filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
+                border:      filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                background:  filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
+                color:       filter === f ? '#fff' : '#64748b',
+                boxShadow:   filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
               }}>
                 {f} {counts[f] > 0 && <span style={{ opacity: 0.8 }}>({counts[f]})</span>}
               </button>
@@ -531,9 +508,9 @@ export default function Home() {
           )}
 
           {filtered.map(r => {
-            const meta = TYPE_META[r.type] ?? { icon: '📋', label: r.type };
+            const meta      = TYPE_META[r.type] ?? { icon: '📋', label: r.type };
             const hasResult = r.resultUrl && r.status === 'DONE';
-            const dev = devices.find(d => d.deviceId === r.deviceId);
+            const dev       = devices.find(d => d.deviceId === r.deviceId);
             return (
               <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 {hasResult && isImageType(r.type) ? (
@@ -551,7 +528,7 @@ export default function Home() {
                     </span>
                   </div>
                   <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
-                    {dev?.name ?? r.deviceId.slice(0,8)} · {timeAgo(r.createdAt)}
+                    {dev?.name ?? r.deviceId.slice(0, 8)} · {timeAgo(r.createdAt)}
                   </div>
                 </div>
                 {hasResult && (
@@ -578,6 +555,7 @@ export default function Home() {
             <button onClick={() => setModal(null)}
               style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#e2e8f0', zIndex: 10 }}>×</button>
 
+            {/* Rasm */}
             {modal.kind === 'image' && (
               <div>
                 <img src={modal.url} alt="result" style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }}/>
@@ -590,6 +568,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Xarita */}
             {modal.kind === 'map' && (
               <div style={{ padding: 24 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: '#f1f5f9' }}>📍 Bolaning joylashuvi</h3>
@@ -609,6 +588,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Ilovalar */}
             {modal.kind === 'apps' && (
               <div style={{ padding: 24, minWidth: 340 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📋 O'rnatilgan ilovalar</h3>
@@ -624,6 +604,7 @@ export default function Home() {
               </div>
             )}
 
+            {/* Foydalanish */}
             {modal.kind === 'usage' && (
               <div style={{ padding: 24, minWidth: 380 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📊 So'nggi 24 soat</h3>
@@ -652,77 +633,74 @@ export default function Home() {
                 </div>
               </div>
             )}
-            {/* 🟢 Qo'ng'iroqlar Modali */}
-{modal.kind === 'calls' && (
-  <div style={{ padding: 24, minWidth: 360 }}>
-    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📞 Qo'ng'iroqlar tarixi</h3>
-    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
-    <div style={{ display: 'grid', gap: 6 }}>
-      {modal.data.map((item, i) => (
-        <div key={i} style={{ padding: '8px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{item.name || item.number}</div>
-            <div style={{ fontSize: 11, color: '#64748b' }}>{item.number} {item.date ? `· ${item.date}` : ''}</div>
-          </div>
-          {item.duration != null && (
-            <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>{item.duration}s</span>
-          )}
-        </div>
-      ))}
-    </div>
-  </div>
-)}
 
-{/* 🟢 SMS Xabarlar Modali */}
-{modal.kind === 'sms' && (
-  <div style={{ padding: 24, minWidth: 360 }}>
-    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>💬 SMS Xabarlar</h3>
-    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
-    <div style={{ display: 'grid', gap: 6 }}>
-      {modal.data.map((item, i) => (
-        <div key={i} style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <span style={{ fontSize: 13, fontWeight: 600, color: '#8b5cf6' }}>{item.name || item.number}</span>
-            <span style={{ fontSize: 10, color: '#64748b' }}>{item.date}</span>
-          </div>
-          <div style={{ fontSize: 12, color: '#cbd5e1' }}>{item.body}</div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
-            {/* 🟢 Bildirishnomalar (Notifications) Modali */}
-{modal.kind === 'notifications' && (
-  <div style={{ padding: 24, minWidth: 380, maxWidth: 500 }}>
-    <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🔔 Kelgan Bildirishnomalar</h3>
-    <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
-    
-    <div style={{ display: 'grid', gap: 8, maxHeight: '60vh', overflowY: 'auto' }}>
-      {modal.data.map((item, i) => (
-        <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              {item.appName || item.packageName}
-            </span>
-            {item.postTime && (
-              <span style={{ fontSize: 10, color: '#64748b' }}>{item.postTime}</span>
+            {/* Qo'ng'iroqlar */}
+            {modal.kind === 'calls' && (
+              <div style={{ padding: 24, minWidth: 380 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📞 Qo'ng'iroqlar tarixi</h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <div style={{ display: 'grid', gap: 4 }}>
+                  {modal.data.map((c, i) => (
+                    <div key={i} style={{ padding: '10px 14px', background: i%2===0?'rgba(255,255,255,0.04)':'transparent', borderRadius: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{c.number}</span>
+                        <span style={{ fontSize: 12, fontWeight: 600, color:
+                          c.type === 'Kiruvchi' ? '#10b981' :
+                          c.type === "O'tkazib yuborilgan" ? '#ef4444' : '#6366f1' }}>
+                          {c.type}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 11, color: '#475569', marginTop: 3 }}>
+                        ⏱ {c.duration}s · {new Date(c.date).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
-          </div>
-          
-          {item.title && (
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>
-              {item.title}
-            </div>
-          )}
-          
-          <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: '1.4' }}>
-            {item.text || 'Xabar matni yo\'q'}
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-)}
+
+            {/* SMS */}
+            {modal.kind === 'sms' && (
+              <div style={{ padding: 24, minWidth: 400, maxWidth: '90vw' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>💬 SMS xabarlar</h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <div style={{ display: 'grid', gap: 6 }}>
+                  {modal.data.map((s, i) => (
+                    <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{s.address}</span>
+                        <span style={{ fontSize: 11, color: s.type==='Kiruvchi'?'#10b981':'#6366f1', fontWeight: 600 }}>{s.type}</span>
+                      </div>
+                      <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{s.body}</div>
+                      <div style={{ fontSize: 11, color: '#475569' }}>{new Date(s.date).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Bildirishnomalar */}
+            {modal.kind === 'notifs' && (
+              <div style={{ padding: 24, minWidth: 400, maxWidth: '90vw' }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🔔 Bildirishnomalar</h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <div style={{ display: 'grid', gap: 6, maxHeight: '60vh', overflowY: 'auto' }}>
+                  {modal.data.map((n, i) => (
+                    <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                          {n.pkg.split('.').pop()}
+                        </span>
+                        <span style={{ fontSize: 10, color: '#475569' }}>{new Date(n.time).toLocaleString()}</span>
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>{n.title}</div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>{n.text || "Xabar matni yo'q"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
           </div>
         </div>
       )}
