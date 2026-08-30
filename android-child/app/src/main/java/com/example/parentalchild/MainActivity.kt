@@ -105,6 +105,7 @@ class MainActivity : AppCompatActivity() {
             if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
         ) { requestAdmin() })
         root.addView(makeBtn("🙈 Ilovaning ikonkasini yashirish") { showHideAppDialog() })
+        root.addView(makeBtn("👁️ Ilovaning ikonkasini ko'rsatish") { showLauncherIcon() })
 
 
         setContentView(root)
@@ -161,6 +162,16 @@ class MainActivity : AppCompatActivity() {
             .setCancelable(false)
             .show()
     }
+    // Ilovaning ikonkasini qayta ko'rsatish funksiyasi
+private fun showLauncherIcon() {
+    val componentName = ComponentName(this, MainActivity::class.java)
+    packageManager.setComponentEnabledSetting(
+        componentName,
+        PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+        PackageManager.DONT_KILL_APP
+    )
+    setStatus("✅ Ilova ikonkasi qaytarildi")
+}
 
     private fun hideLauncherIcon() {
         val componentName = ComponentName(this, MainActivity::class.java)
