@@ -22,45 +22,25 @@ class LocationHelper(private val ctx: Context) {
 
         val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-        // 1) Oxirgi ma'lum joylashuv (yosh bo'lmasa ham ishlatamiz)
-        val last = getBestLast(lm)
-        if (last != null) return last
+        // GPS yoqilgan bo'lsa — yangi GPS koordinata olishga harakat qil
+        if (hasFine && lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+            val gps = requestGps(lm)
+            if (gps != null) return gps
+        }
 
-        // 2) Yangi joylashuv so'rash (30 soniya)
-        return requestFresh(lm)
+        // GPS ishlamasa — so'nggi ma'lum joylashuvni qaytaramiz
+        return getBestLast(lm)
     }
 
-    private fun getBestLast(lm: LocationManager): Pair<Double, Double>? {
-    var best: Location? = null
-    val maxAgeMs = 5 * 60 * 1000L // 5 daqiqadan eski bo'lsa ishonmaymiz
-    val providers = listOf(
-        LocationManager.NETWORK_PROVIDER, // tezroq
-        LocationManager.GPS_PROVIDER,
-        "fused"                           // Android 12+ uchun
-    )
-    for (p in providers) {
-        try {
-            if (!lm.isProviderEnabled(p)) continue
-            val loc = lm.getLastKnownLocation(p) ?: continue
-            val age = System.currentTimeMillis() - loc.time
-            if (age > maxAgeMs) continue // eski koordinata — rad etamiz
-            if (best == null || loc.accuracy < best.accuracy) best = loc
-        } catch (_: Exception) {}
-    }
-    return best?.let { Pair(it.latitude, it.longitude) }
-}
-
-    private fun requestFresh(lm: LocationManager): Pair<Double, Double>? {
-        val latch  = CountDownLatch(1)
+    private fun requestGps(lm: LocationManager): Pair<Double, Double>? {
+        val latch   = CountDownLatch(1)
         var result: Pair<Double, Double>? = null
-
-        val th      = HandlerThread("loc").also { it.start() }
-        val handler = Handler(th.looper)
+        val th      = HandlerThread("loc-gps").also { it.start() }
 
         val listener = object : LocationListener {
             override fun onLocationChanged(loc: Location) {
-                // Birinchi kelgan joylashuvni qabul qilamiz
-                if (result == null) {
+                // Aniqlik 50 metrdan yaxshi bo'lsa qabul qilamiz
+                if (loc.accuracy <= 50f && result == null) {
                     result = Pair(loc.latitude, loc.longitude)
                     latch.countDown()
                 }
@@ -72,32 +52,45 @@ class LocationHelper(private val ctx: Context) {
         }
 
         try {
-            var registered = false
-            // Avval Network (tezroq, ichkaridayam ishlaydi)
+            lm.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER, 0L, 0f, listener, th.looper
+            )
+            // Network ham qo'shamiz (tezroq javob berishi uchun)
             if (lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                 try {
-                    lm.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 0L, 0f, listener, th.looper)
-                    registered = true
+                    lm.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER, 0L, 0f, listener, th.looper
+                    )
                 } catch (_: Exception) {}
             }
-            // GPS ham qo'shamiz (aniqroq)
-            if (lm.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                try {
-                    lm.requestLocationUpdates(LocationManager.GPS_PROVIDER, 0L, 0f, listener, th.looper)
-                    registered = true
-                } catch (_: Exception) {}
-            }
-
-            if (!registered) return null
-
-            // 30 soniya kutamiz
-            latch.await(30, TimeUnit.SECONDS)
+            // 45 soniya GPS ni kutamiz
+            latch.await(45, TimeUnit.SECONDS)
         } catch (_: Exception) {
         } finally {
             try { lm.removeUpdates(listener) } catch (_: Exception) {}
             th.quitSafely()
         }
-
         return result
+    }
+
+    private fun getBestLast(lm: LocationManager): Pair<Double, Double>? {
+        var best: Location? = null
+        val maxAgeMs = 10 * 60 * 1000L // 10 daqiqadan eski bo'lsa rad etamiz
+
+        val providers = listOf(
+            LocationManager.GPS_PROVIDER,
+            LocationManager.NETWORK_PROVIDER,
+            "fused"
+        )
+        for (p in providers) {
+            try {
+                if (!lm.isProviderEnabled(p)) continue
+                val loc = lm.getLastKnownLocation(p) ?: continue
+                val age = System.currentTimeMillis() - loc.time
+                if (age > maxAgeMs) continue
+                if (best == null || loc.accuracy < best.accuracy) best = loc
+            } catch (_: Exception) {}
+        }
+        return best?.let { Pair(it.latitude, it.longitude) }
     }
 }
