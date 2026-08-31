@@ -29,5 +29,5 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 implementation("com.google.android.gms:play-services-location:21.3.0")
-implementation("io.getstream:stream-webrtc-android:1.1.8")
+implementation("io.getstream:stream-webrtc-android:1.3.10")
 }
