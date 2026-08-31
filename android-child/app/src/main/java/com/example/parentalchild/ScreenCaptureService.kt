@@ -32,7 +32,46 @@ class ScreenCaptureService : Service() {
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var w = 1080; private var h = 1920; private var dpi = 320
+    private var webRTC: WebRTCManager? = null
 
+// onCreate da:
+override fun onCreate() {
+    super.onCreate()
+    instance  = this
+    isRunning = true
+    webRTC = WebRTCManager(
+        this,
+        "", // deviceId keyinroq set qilinadi
+        BuildConfig.API_URL,
+        BuildConfig.DEVICE_SECRET
+    )
+    webRTC?.init()
+    // ...
+}
+
+// handleRequest da SCREEN_SHARE:
+"SCREEN_SHARE" -> {
+    if (webRTC?.isStreaming == true) {
+        webRTC?.stopStream()
+        api.updateStatus(id, "DONE", "stopped")
+    } else if (projection != null) {
+        // MediaProjection permission intentni qayta ishlatamiz
+        // webRTC ga deviceId set qilamiz
+        webRTC = WebRTCManager(
+            this, deviceId,
+            BuildConfig.API_URL,
+            BuildConfig.DEVICE_SECRET
+        )
+        webRTC?.init()
+        // Projection intent saqlab qo'yish kerak
+        savedProjectionIntent?.let { intent ->
+            webRTC?.startStream(intent)
+            api.updateStatus(id, "DONE", "streaming")
+        } ?: api.updateStatus(id, "FAILED")
+    } else {
+        api.updateStatus(id, "FAILED")
+    }
+}
     private lateinit var api: Api
     private lateinit var deviceId: String
 
