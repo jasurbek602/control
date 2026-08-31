@@ -2,6 +2,7 @@ package com.example.parentalchild
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.media.projection.MediaProjection
 import android.os.Handler
 import android.os.HandlerThread
 import okhttp3.MediaType.Companion.toMediaType
