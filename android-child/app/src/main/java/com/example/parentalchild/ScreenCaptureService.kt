@@ -162,8 +162,13 @@ class ScreenCaptureService : Service() {
             }
         } catch (_: Exception) {}
     }
-
+    private fun hasPermission(perm: String): Boolean {
+    return androidx.core.content.ContextCompat.checkSelfPermission(
+        this, perm
+    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+}
     private fun startHeartbeatLoop() {
+        
         thread(name = "heartbeat") {
             // Avval register qilib ol
             try { api.register(deviceId, "Child device") } catch (_: Exception) {}
