@@ -10,10 +10,10 @@ type Req = {
   _id: string; deviceId: string; type: string;
   status: string; createdAt: string; resultUrl?: string;
 };
-type AppEntry    = { name: string; package?: string; minutes?: number };
-type CallItem    = { number: string; type: string; duration: number; date: number };
-type SmsItem     = { address: string; body: string; type: string; date: number };
-type NotifItem   = { pkg: string; title: string; text: string; time: number };
+type AppEntry  = { name: string; package?: string; minutes?: number };
+type CallItem  = { number: string; type: string; duration: number; date: number };
+type SmsItem   = { address: string; body: string; type: string; date: number };
+type NotifItem = { pkg: string; title: string; text: string; time: number };
 
 type ModalContent =
   | { kind: 'image';  url: string }
@@ -22,12 +22,12 @@ type ModalContent =
   | { kind: 'usage';  data: AppEntry[] }
   | { kind: 'calls';  data: CallItem[] }
   | { kind: 'sms';    data: SmsItem[] }
-  | { kind: 'notifs'; data: NotifItem[] };
+  | { kind: 'notifs'; data: NotifItem[] }
+  | { kind: 'stream'; deviceId: string };
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
 };
-
 const TYPE_META: Record<string, { icon: string; label: string }> = {
   SCREENSHOT:        { icon: '📸', label: 'Screenshot' },
   CAMERA_FRONT:      { icon: '🤳', label: 'Oldingi kamera' },
@@ -139,6 +139,215 @@ const S = {
   } as React.CSSProperties,
 };
 
+// ─── Stream Modal (WebRTC) ─────────────────────────────────────
+function StreamModal({ deviceId, onClose }: {
+  deviceId: string;
+  onClose: () => void;
+}) {
+  const [status, setStatus] = useState<'connecting'|'connected'|'failed'>('connecting');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const pcRef    = useRef<RTCPeerConnection | null>(null);
+  const stopped  = useRef(false);
+
+  useEffect(() => {
+    stopped.current = false;
+
+    async function pollDeviceIce(pc: RTCPeerConnection) {
+      while (!stopped.current) {
+        try {
+          const res  = await fetch(`/api/signal/${deviceId}?type=ice-device`);
+          const data = await res.json();
+          if (data.signal) {
+            await pc.addIceCandidate({
+              candidate:     data.signal.candidate,
+              sdpMid:        data.signal.sdpMid,
+              sdpMLineIndex: data.signal.sdpMLineIndex,
+            });
+          }
+        } catch (_) {}
+        await new Promise(r => setTimeout(r, 500));
+      }
+    }
+
+    async function start() {
+      // Eski signallarni tozalaymiz
+      await fetch(`/api/signal/${deviceId}`, { method: 'DELETE' });
+
+      const pc = new RTCPeerConnection({
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+        ],
+      });
+      pcRef.current = pc;
+
+      // Video kelganda ko'rsatamiz
+      pc.ontrack = (e) => {
+        if (videoRef.current && e.streams[0]) {
+          videoRef.current.srcObject = e.streams[0];
+          setStatus('connected');
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'failed' ||
+            pc.iceConnectionState === 'disconnected') {
+          setStatus('failed');
+        }
+        if (pc.iceConnectionState === 'connected') {
+          setStatus('connected');
+        }
+      };
+
+      // ICE candidate larni serverga yuboramiz
+      pc.onicecandidate = async (e) => {
+        if (!e.candidate) return;
+        try {
+          await fetch(`/api/signal/${deviceId}`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              type:          'ice-viewer',
+              candidate:     e.candidate.candidate,
+              sdpMid:        e.candidate.sdpMid,
+              sdpMLineIndex: e.candidate.sdpMLineIndex,
+            }),
+          });
+        } catch (_) {}
+      };
+
+      // Telefondan offer kelishini kutamiz
+      let waited = 0;
+      while (!stopped.current) {
+        try {
+          const res  = await fetch(`/api/signal/${deviceId}?type=offer`);
+          const data = await res.json();
+          if (data.signal) {
+            // Offer qabul qildik
+            await pc.setRemoteDescription({
+              type: 'offer',
+              sdp:  data.signal.sdp,
+            });
+
+            // Answer yaratamiz
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+
+            // Answer ni serverga yuboramiz
+            await fetch(`/api/signal/${deviceId}`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                type: 'answer',
+                sdp:  answer.sdp,
+              }),
+            });
+
+            // Telefon ICE larini kutamiz
+            pollDeviceIce(pc);
+            break;
+          }
+        } catch (_) {}
+
+        waited += 1000;
+        if (waited > 30000) { setStatus('failed'); break; }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+
+    start();
+
+    return () => {
+      stopped.current = true;
+      pcRef.current?.close();
+      fetch(`/api/signal/${deviceId}`, { method: 'DELETE' }).catch(() => {});
+    };
+  }, [deviceId]);
+
+  return (
+    <div onClick={onClose} style={{
+      position: 'fixed', inset: 0,
+      background: 'rgba(0,0,0,0.95)',
+      display: 'flex', alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 9999, padding: 20,
+    }}>
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#1e1e2e',
+        border: '1px solid rgba(255,255,255,0.1)',
+        borderRadius: 20,
+        overflow: 'hidden',
+        maxWidth: '95vw',
+        maxHeight: '90vh',
+        display: 'flex',
+        flexDirection: 'column',
+      }}>
+        {/* Header */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12,
+          padding: '12px 16px',
+          borderBottom: '1px solid rgba(255,255,255,0.1)',
+        }}>
+          <span style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9', flex: 1 }}>
+            🖥️ Jonli ekran
+          </span>
+          <span style={{
+            fontSize: 12, fontWeight: 600,
+            padding: '3px 12px', borderRadius: 20,
+            background: status === 'connected'
+              ? 'rgba(16,185,129,0.15)'
+              : status === 'failed'
+              ? 'rgba(239,68,68,0.15)'
+              : 'rgba(245,158,11,0.15)',
+            color: status === 'connected' ? '#10b981'
+              : status === 'failed' ? '#ef4444' : '#f59e0b',
+          }}>
+            {status === 'connecting' ? '⏳ Ulanmoqda...'
+              : status === 'connected' ? '🟢 Jonli'
+              : '❌ Ulanmadi'}
+          </span>
+          <button onClick={onClose} style={{
+            width: 32, height: 32, borderRadius: '50%',
+            background: 'rgba(255,255,255,0.1)',
+            border: 'none', cursor: 'pointer',
+            fontSize: 18, fontWeight: 700, color: '#e2e8f0',
+          }}>×</button>
+        </div>
+
+        {/* Video */}
+        <div style={{ background: '#000', position: 'relative' }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted
+            style={{
+              maxWidth: '88vw',
+              maxHeight: '75vh',
+              display: 'block',
+              objectFit: 'contain',
+            }}
+          />
+          {status !== 'connected' && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'center',
+              color: '#475569', fontSize: 14,
+              minWidth: 360, minHeight: 240,
+            }}>
+              {status === 'connecting'
+                ? '⏳ Telefon ulangani kutilmoqda...'
+                : '❌ Ulanish muvaffaqiyatsiz. Qaytadan urinib ko\'ring.'}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Login ekrani ──────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [pwd,  setPwd]  = useState('');
@@ -171,9 +380,12 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         padding: '48px 40px', width: '100%', maxWidth: 380, textAlign: 'center',
       }}>
         <div style={{ fontSize: 52, marginBottom: 16 }}>🛡️</div>
-        <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>Family Guard</div>
-        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 32 }}>Kirish uchun parolni kiriting</div>
-
+        <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>
+          Family Guard
+        </div>
+        <div style={{ fontSize: 13, color: '#64748b', marginBottom: 32 }}>
+          Kirish uchun parolni kiriting
+        </div>
         <div style={{ position: 'relative', marginBottom: 16 }}>
           <input
             type={show ? 'text' : 'password'}
@@ -182,7 +394,10 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             onChange={e => setPwd(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && login()}
             autoFocus
-            style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 16, letterSpacing: show ? 0 : 4, paddingRight: 44 }}
+            style={{
+              ...S.input, width: '100%', boxSizing: 'border-box',
+              fontSize: 16, letterSpacing: show ? 0 : 4, paddingRight: 44,
+            }}
           />
           <button onClick={() => setShow(s => !s)} style={{
             position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
@@ -191,15 +406,20 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             {show ? '🙈' : '👁'}
           </button>
         </div>
-
         {err && (
-          <div style={{ color: '#f87171', fontSize: 13, marginBottom: 14, background: 'rgba(248,113,113,0.1)', padding: '8px 12px', borderRadius: 8 }}>
+          <div style={{
+            color: '#f87171', fontSize: 13, marginBottom: 14,
+            background: 'rgba(248,113,113,0.1)', padding: '8px 12px', borderRadius: 8,
+          }}>
             ❌ {err}
           </div>
         )}
-
         <button onClick={login} disabled={busy || !pwd.trim()}
-          style={{ ...S.btnPrimary, width: '100%', opacity: busy || !pwd.trim() ? 0.5 : 1, fontSize: 15, padding: '13px 0' }}>
+          style={{
+            ...S.btnPrimary, width: '100%',
+            opacity: busy || !pwd.trim() ? 0.5 : 1,
+            fontSize: 15, padding: '13px 0',
+          }}>
           {busy ? 'Tekshirilmoqda...' : 'Kirish →'}
         </button>
       </div>
@@ -249,9 +469,16 @@ export default function Home() {
     const x = await fetch('/api/request?mode=list').then(r => r.json()).catch(() => ({}));
     const reqs: Req[] = x.requests ?? [];
     setRequests(reqs);
-    const newDone = reqs.filter(r => r.status === 'DONE' && !prevDoneIds.current.has(r._id));
-    if (newDone.length > 0) { playBeep(); newDone.forEach(r => prevDoneIds.current.add(r._id)); }
-    reqs.forEach(r => { if (r.status !== 'PENDING') prevDoneIds.current.add(r._id); });
+    const newDone = reqs.filter(r =>
+      r.status === 'DONE' && !prevDoneIds.current.has(r._id)
+    );
+    if (newDone.length > 0) {
+      playBeep();
+      newDone.forEach(r => prevDoneIds.current.add(r._id));
+    }
+    reqs.forEach(r => {
+      if (r.status !== 'PENDING') prevDoneIds.current.add(r._id);
+    });
   }
 
   useEffect(() => {
@@ -273,7 +500,8 @@ export default function Home() {
   }
 
   async function deleteDevice(id: string, dName: string) {
-    if (!confirm(`"${dName}" qurilmasini o'chirishni xohlaysizmi?\nBarcha so'rovlar ham o'chadi.`)) return;
+    if (!confirm(`"${dName}" qurilmasini o'chirishni xohlaysizmi?\nBarcha so'rovlar ham o'chadi.`))
+      return;
     setDeletingId(id);
     await fetch('/api/device/register', {
       method: 'DELETE',
@@ -352,7 +580,6 @@ export default function Home() {
     setLoadingId(null);
   }
 
-  // ── Loading ──
   if (auth === null) {
     return (
       <div style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -360,7 +587,6 @@ export default function Home() {
       </div>
     );
   }
-
   if (!auth) return <LoginScreen onLogin={() => setAuth(true)} />;
 
   const filtered = requests.filter(r => filter === 'ALL' || r.status === filter);
@@ -384,10 +610,20 @@ export default function Home() {
         </div>
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block' }}/>
-            <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d => d.online).length} online</span>
+            <span style={{
+              width: 8, height: 8, borderRadius: '50%',
+              background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block',
+            }}/>
+            <span style={{ fontSize: 12, color: '#64748b' }}>
+              {devices.filter(d => d.online).length} online
+            </span>
           </div>
-          <button onClick={logout} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
+          <button onClick={logout} style={{
+            ...S.btnAction,
+            color: '#f87171',
+            borderColor: 'rgba(248,113,113,0.3)',
+            background: 'rgba(248,113,113,0.08)',
+          }}>
             🚪 Chiqish
           </button>
         </div>
@@ -397,11 +633,15 @@ export default function Home() {
 
         {/* Pairing */}
         <div style={S.card}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>
+          <div style={{
+            fontSize: 13, fontWeight: 600, color: '#94a3b8',
+            marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1,
+          }}>
             Qurilma ulash
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <input placeholder="Bolaning ismi" value={name} onChange={e => setName(e.target.value)}
+            <input placeholder="Bolaning ismi" value={name}
+              onChange={e => setName(e.target.value)}
               style={{ ...S.input, minWidth: 130 }}/>
             <input placeholder="Pairing code" value={pairCode}
               onChange={e => setPairCode(e.target.value.toUpperCase())}
@@ -417,8 +657,12 @@ export default function Home() {
         {/* Offline tozalash */}
         {offlineCount > 0 && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, marginTop: -8 }}>
-            <button onClick={deleteAllOffline}
-              style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
+            <button onClick={deleteAllOffline} style={{
+              ...S.btnAction,
+              color: '#f87171',
+              borderColor: 'rgba(248,113,113,0.3)',
+              background: 'rgba(248,113,113,0.08)',
+            }}>
               🗑 {offlineCount} ta offline qurilmani o'chirish
             </button>
           </div>
@@ -449,23 +693,62 @@ export default function Home() {
                 </div>
               </div>
               {d.battery != null && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.06)', padding: '4px 10px', borderRadius: 8 }}>
-                  <div style={{ width: 22, height: 11, border: `1.5px solid ${batteryColor(d.battery)}`, borderRadius: 3, position: 'relative' }}>
-                    <div style={{ position: 'absolute', right: -4, top: '50%', transform: 'translateY(-50%)', width: 3, height: 5, background: batteryColor(d.battery), borderRadius: '0 2px 2px 0' }}/>
-                    <div style={{ height: '100%', width: `${d.battery}%`, background: batteryColor(d.battery), borderRadius: 2 }}/>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  background: 'rgba(255,255,255,0.06)', padding: '4px 10px', borderRadius: 8,
+                }}>
+                  <div style={{
+                    width: 22, height: 11,
+                    border: `1.5px solid ${batteryColor(d.battery)}`,
+                    borderRadius: 3, position: 'relative',
+                  }}>
+                    <div style={{
+                      position: 'absolute', right: -4, top: '50%',
+                      transform: 'translateY(-50%)',
+                      width: 3, height: 5,
+                      background: batteryColor(d.battery),
+                      borderRadius: '0 2px 2px 0',
+                    }}/>
+                    <div style={{
+                      height: '100%', width: `${d.battery}%`,
+                      background: batteryColor(d.battery), borderRadius: 2,
+                    }}/>
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: batteryColor(d.battery) }}>{d.battery}%</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: batteryColor(d.battery) }}>
+                    {d.battery}%
+                  </span>
                 </div>
               )}
               <button onClick={() => deleteDevice(d._id, d.name)} disabled={deletingId === d._id}
-                style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
+                style={{
+                  ...S.btnAction,
+                  color: '#f87171',
+                  borderColor: 'rgba(248,113,113,0.3)',
+                  background: 'rgba(248,113,113,0.08)',
+                }}>
                 {deletingId === d._id ? '...' : "🗑 O'chirish"}
               </button>
             </div>
+
+            {/* Tugmalar */}
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {BTNS.map(({ type, label }) => (
-                <button key={type} onClick={() => sendReq(d.deviceId, type)} disabled={!d.online}
-                  style={{ ...S.btnAction, opacity: d.online ? 1 : 0.4, cursor: d.online ? 'pointer' : 'not-allowed' }}>
+                <button key={type}
+                  disabled={!d.online}
+                  onClick={() => {
+                    if (type === 'SCREEN_SHARE') {
+                      // Avval modal ochamiz, keyin telefonga buyruq yuboramiz
+                      setModal({ kind: 'stream', deviceId: d.deviceId });
+                      sendReq(d.deviceId, 'SCREEN_SHARE');
+                    } else {
+                      sendReq(d.deviceId, type);
+                    }
+                  }}
+                  style={{
+                    ...S.btnAction,
+                    opacity: d.online ? 1 : 0.4,
+                    cursor: d.online ? 'pointer' : 'not-allowed',
+                  }}>
                   {label}
                 </button>
               ))}
@@ -476,12 +759,19 @@ export default function Home() {
         {/* So'rovlar tarixi */}
         <div style={S.card}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, flex: 1 }}>
+            <div style={{
+              fontSize: 13, fontWeight: 600, color: '#94a3b8',
+              textTransform: 'uppercase', letterSpacing: 1, flex: 1,
+            }}>
               So'rovlar tarixi
             </div>
             {requests.length > 0 && (
-              <button onClick={clearAll}
-                style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)', fontSize: 11 }}>
+              <button onClick={clearAll} style={{
+                ...S.btnAction,
+                color: '#f87171',
+                borderColor: 'rgba(248,113,113,0.3)',
+                background: 'rgba(248,113,113,0.08)', fontSize: 11,
+              }}>
                 Hammasini o'chirish
               </button>
             )}
@@ -490,11 +780,14 @@ export default function Home() {
           <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
             {(['ALL','PENDING','DONE','FAILED'] as const).map(f => (
               <button key={f} onClick={() => setFilter(f)} style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border:      filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                background:  filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
-                color:       filter === f ? '#fff' : '#64748b',
-                boxShadow:   filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
+                padding: '5px 14px', borderRadius: 20, fontSize: 12,
+                fontWeight: 600, cursor: 'pointer',
+                border:     filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
+                background: filter === f
+                  ? 'linear-gradient(135deg, #6366f1, #8b5cf6)'
+                  : 'rgba(255,255,255,0.05)',
+                color:     filter === f ? '#fff' : '#64748b',
+                boxShadow: filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
               }}>
                 {f} {counts[f] > 0 && <span style={{ opacity: 0.8 }}>({counts[f]})</span>}
               </button>
@@ -512,18 +805,34 @@ export default function Home() {
             const hasResult = r.resultUrl && r.status === 'DONE';
             const dev       = devices.find(d => d.deviceId === r.deviceId);
             return (
-              <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div key={r._id} style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 0',
+                borderBottom: '1px solid rgba(255,255,255,0.05)',
+              }}>
                 {hasResult && isImageType(r.type) ? (
                   <img src={r.resultUrl} alt="" onClick={() => openResult(r)}
-                    style={{ width: 52, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }}/>
+                    style={{
+                      width: 52, height: 38, objectFit: 'cover',
+                      borderRadius: 8, cursor: 'pointer', flexShrink: 0,
+                      border: '1px solid rgba(255,255,255,0.1)',
+                    }}/>
                 ) : (
-                  <span style={{ width: 52, textAlign: 'center', fontSize: 24, flexShrink: 0 }}>{meta.icon}</span>
+                  <span style={{ width: 52, textAlign: 'center', fontSize: 24, flexShrink: 0 }}>
+                    {meta.icon}
+                  </span>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{meta.label}</span>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COLOR[r.status] ?? '#6b7280',
-                      background: `${STATUS_COLOR[r.status]}20`, padding: '2px 8px', borderRadius: 10 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                      {meta.label}
+                    </span>
+                    <span style={{
+                      fontSize: 11, fontWeight: 700,
+                      color: STATUS_COLOR[r.status] ?? '#6b7280',
+                      background: `${STATUS_COLOR[r.status]}20`,
+                      padding: '2px 8px', borderRadius: 10,
+                    }}>
                       {r.status}
                     </span>
                   </div>
@@ -537,8 +846,9 @@ export default function Home() {
                     {loadingId === r._id ? '...' : "Ko'rish"}
                   </button>
                 )}
-                <button onClick={() => deleteReq(r._id)}
-                  style={{ ...S.btnAction, padding: '5px 8px', flexShrink: 0, color: '#475569' }}>✕</button>
+                <button onClick={() => deleteReq(r._id)} style={{
+                  ...S.btnAction, padding: '5px 8px', flexShrink: 0, color: '#475569',
+                }}>✕</button>
               </div>
             );
           })}
@@ -546,19 +856,33 @@ export default function Home() {
       </div>
 
       {/* Modal */}
-      {modal && (
-        <div onClick={() => setModal(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, overflow: 'hidden', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
-
-            <button onClick={() => setModal(null)}
-              style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#e2e8f0', zIndex: 10 }}>×</button>
+      {modal && modal.kind !== 'stream' && (
+        <div onClick={() => setModal(null)} style={{
+          position: 'fixed', inset: 0,
+          background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 9999, padding: 20,
+        }}>
+          <div onClick={e => e.stopPropagation()} style={{
+            background: '#1e1e2e',
+            border: '1px solid rgba(255,255,255,0.1)',
+            borderRadius: 20, overflow: 'hidden',
+            maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto',
+            position: 'relative',
+          }}>
+            <button onClick={() => setModal(null)} style={{
+              position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0',
+              width: 32, height: 32, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.1)', border: 'none',
+              cursor: 'pointer', fontSize: 18, fontWeight: 700,
+              color: '#e2e8f0', zIndex: 10,
+            }}>×</button>
 
             {/* Rasm */}
             {modal.kind === 'image' && (
               <div>
-                <img src={modal.url} alt="result" style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }}/>
+                <img src={modal.url} alt="result"
+                  style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }}/>
                 <div style={{ padding: '12px 16px' }}>
                   <a href={modal.url} download target="_blank"
                     style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 13 }}>
@@ -571,7 +895,9 @@ export default function Home() {
             {/* Xarita */}
             {modal.kind === 'map' && (
               <div style={{ padding: 24 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: '#f1f5f9' }}>📍 Bolaning joylashuvi</h3>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: '#f1f5f9' }}>
+                  📍 Bolaning joylashuvi
+                </h3>
                 <iframe
                   src={`https://maps.google.com/maps?q=${modal.lat},${modal.lng}&z=16&output=embed`}
                   width="100%" height="380"
@@ -591,12 +917,23 @@ export default function Home() {
             {/* Ilovalar */}
             {modal.kind === 'apps' && (
               <div style={{ padding: 24, minWidth: 340 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📋 O'rnatilgan ilovalar</h3>
-                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>
+                  📋 O'rnatilgan ilovalar
+                </h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>
+                  Jami: {modal.data.length} ta
+                </p>
                 <div style={{ display: 'grid', gap: 3 }}>
                   {modal.data.map((app, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'transparent', borderRadius: 6 }}>
-                      <span style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0', flex: 1 }}>{app.name}</span>
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '8px 12px',
+                      background: i % 2 === 0 ? 'rgba(255,255,255,0.04)' : 'transparent',
+                      borderRadius: 6,
+                    }}>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0', flex: 1 }}>
+                        {app.name}
+                      </span>
                       <span style={{ fontSize: 10, color: '#475569' }}>{app.package}</span>
                     </div>
                   ))}
@@ -607,25 +944,41 @@ export default function Home() {
             {/* Foydalanish */}
             {modal.kind === 'usage' && (
               <div style={{ padding: 24, minWidth: 380 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📊 So'nggi 24 soat</h3>
-                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Eng ko'p ishlatiladigan ilovalar</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>
+                  📊 So'nggi 24 soat
+                </h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>
+                  Eng ko'p ishlatiladigan ilovalar
+                </p>
                 <div style={{ display: 'grid', gap: 8 }}>
                   {modal.data.map((app, i) => {
                     const max  = modal.data[0]?.minutes ?? 1;
                     const pct  = Math.round(((app.minutes ?? 0) / max) * 100);
-                    const h    = Math.floor((app.minutes ?? 0) / 60);
+                    const h2   = Math.floor((app.minutes ?? 0) / 60);
                     const m    = (app.minutes ?? 0) % 60;
-                    const lbl  = h > 0 ? `${h}s ${m}d` : `${m} daqiqa`;
+                    const lbl  = h2 > 0 ? `${h2}s ${m}d` : `${m} daqiqa`;
                     const clrs = ['#6366f1','#8b5cf6','#06b6d4','#10b981','#f59e0b'];
                     const clr  = clrs[i % clrs.length];
                     return (
-                      <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div key={i} style={{
+                        padding: '10px 14px',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{app.name}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>
+                            {app.name}
+                          </span>
                           <span style={{ fontSize: 12, color: clr, fontWeight: 700 }}>{lbl}</span>
                         </div>
-                        <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${pct}%`, background: clr, borderRadius: 3 }}/>
+                        <div style={{
+                          height: 5, background: 'rgba(255,255,255,0.08)',
+                          borderRadius: 3, overflow: 'hidden',
+                        }}>
+                          <div style={{
+                            height: '100%', width: `${pct}%`,
+                            background: clr, borderRadius: 3,
+                          }}/>
                         </div>
                       </div>
                     );
@@ -637,16 +990,29 @@ export default function Home() {
             {/* Qo'ng'iroqlar */}
             {modal.kind === 'calls' && (
               <div style={{ padding: 24, minWidth: 380 }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📞 Qo'ng'iroqlar tarixi</h3>
-                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>
+                  📞 Qo'ng'iroqlar tarixi
+                </h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>
+                  Jami: {modal.data.length} ta
+                </p>
                 <div style={{ display: 'grid', gap: 4 }}>
                   {modal.data.map((c, i) => (
-                    <div key={i} style={{ padding: '10px 14px', background: i%2===0?'rgba(255,255,255,0.04)':'transparent', borderRadius: 8 }}>
+                    <div key={i} style={{
+                      padding: '10px 14px',
+                      background: i%2===0 ? 'rgba(255,255,255,0.04)' : 'transparent',
+                      borderRadius: 8,
+                    }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>{c.number}</span>
-                        <span style={{ fontSize: 12, fontWeight: 600, color:
-                          c.type === 'Kiruvchi' ? '#10b981' :
-                          c.type === "O'tkazib yuborilgan" ? '#ef4444' : '#6366f1' }}>
+                        <span style={{ fontSize: 14, fontWeight: 600, color: '#f1f5f9' }}>
+                          {c.number}
+                        </span>
+                        <span style={{
+                          fontSize: 12, fontWeight: 600,
+                          color: c.type === 'Kiruvchi' ? '#10b981'
+                            : c.type === "O'tkazib yuborilgan" ? '#ef4444'
+                            : '#6366f1',
+                        }}>
                           {c.type}
                         </span>
                       </div>
@@ -662,17 +1028,34 @@ export default function Home() {
             {/* SMS */}
             {modal.kind === 'sms' && (
               <div style={{ padding: 24, minWidth: 400, maxWidth: '90vw' }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>💬 SMS xabarlar</h3>
-                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>
+                  💬 SMS xabarlar
+                </h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>
+                  Jami: {modal.data.length} ta
+                </p>
                 <div style={{ display: 'grid', gap: 6 }}>
                   {modal.data.map((s, i) => (
-                    <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div key={i} style={{
+                      padding: '10px 14px',
+                      background: 'rgba(255,255,255,0.04)',
+                      borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                        <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>{s.address}</span>
-                        <span style={{ fontSize: 11, color: s.type==='Kiruvchi'?'#10b981':'#6366f1', fontWeight: 600 }}>{s.type}</span>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: '#f1f5f9' }}>
+                          {s.address}
+                        </span>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600,
+                          color: s.type === 'Kiruvchi' ? '#10b981' : '#6366f1',
+                        }}>
+                          {s.type}
+                        </span>
                       </div>
                       <div style={{ fontSize: 13, color: '#cbd5e1', marginBottom: 4 }}>{s.body}</div>
-                      <div style={{ fontSize: 11, color: '#475569' }}>{new Date(s.date).toLocaleString()}</div>
+                      <div style={{ fontSize: 11, color: '#475569' }}>
+                        {new Date(s.date).toLocaleString()}
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -682,28 +1065,56 @@ export default function Home() {
             {/* Bildirishnomalar */}
             {modal.kind === 'notifs' && (
               <div style={{ padding: 24, minWidth: 400, maxWidth: '90vw' }}>
-                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🔔 Bildirishnomalar</h3>
-                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Jami: {modal.data.length} ta</p>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>
+                  🔔 Bildirishnomalar
+                </h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>
+                  Jami: {modal.data.length} ta
+                </p>
                 <div style={{ display: 'grid', gap: 6, maxHeight: '60vh', overflowY: 'auto' }}>
                   {modal.data.map((n, i) => (
-                    <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                    <div key={i} style={{
+                      padding: '10px 14px',
+                      background: 'rgba(255,255,255,0.04)',
+                      borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      <div style={{
+                        display: 'flex', justifyContent: 'space-between',
+                        alignItems: 'center', marginBottom: 4,
+                      }}>
+                        <span style={{
+                          fontSize: 11, fontWeight: 700, color: '#f59e0b',
+                          textTransform: 'uppercase', letterSpacing: 0.5,
+                        }}>
                           {n.pkg.split('.').pop()}
                         </span>
-                        <span style={{ fontSize: 10, color: '#475569' }}>{new Date(n.time).toLocaleString()}</span>
+                        <span style={{ fontSize: 10, color: '#475569' }}>
+                          {new Date(n.time).toLocaleString()}
+                        </span>
                       </div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>{n.title}</div>
-                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>{n.text || "Xabar matni yo'q"}</div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>
+                        {n.title}
+                      </div>
+                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: 1.4 }}>
+                        {n.text || "Xabar matni yo'q"}
+                      </div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-
           </div>
         </div>
       )}
+
+      {/* Stream Modal (WebRTC) */}
+      {modal?.kind === 'stream' && (
+        <StreamModal
+          deviceId={modal.deviceId}
+          onClose={() => setModal(null)}
+        />
+      )}
+
     </div>
   );
 }
