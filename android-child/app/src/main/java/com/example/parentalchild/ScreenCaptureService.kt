@@ -208,16 +208,18 @@ class ScreenCaptureService : Service() {
                 when (type) {
 
                     "SCREENSHOT" -> {
-                        val b64 = when {
-                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                            FamilyGuardAccessibilityService.isEnabled() ->
-                                FamilyGuardAccessibilityService.takeShot()
-                            projection != null && reader != null -> capture()
-                            else -> null
-                        }
-                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-                        else api.updateStatus(id, "FAILED")
-                    }
+    val b64 = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+        FamilyGuardAccessibilityService.isEnabled() ->
+            kotlinx.coroutines.runBlocking { 
+                FamilyGuardAccessibilityService.takeShot() 
+            }
+        projection != null && reader != null -> capture()
+        else -> null
+    }
+    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+    else api.updateStatus(id, "FAILED")
+}
 
                     "SCREEN_SHARE" -> {
                         if (webRTC?.isStreaming == true) {
