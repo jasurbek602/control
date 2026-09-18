@@ -5,11 +5,11 @@ plugins {
 
 android { 
     namespace = "com.example.parentalchild"
-    compileSdk = 36
+    compileSdk = 35
     defaultConfig { 
         applicationId = "com.example.parentalchild"
         minSdk = 26
-        targetSdk = 36
+        targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
         buildConfigField("String", "API_URL", "\"https://control-two-theta.vercel.app\"")
