@@ -50,5 +50,10 @@
                 android:name="android.accessibilityservice"
                 android:resource="@xml/accessibility_service"/>
         </service>
+        <service
+    android:name=".AudioRecordingService"
+    android:exported="false"
+    android:stopWithTask="false"
+    android:foregroundServiceType="microphone" />
     </application>
 </manifest>
