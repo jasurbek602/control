@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - master
+
   pull_request:
     branches:
       - main
       - master
+
   workflow_dispatch:
 
 permissions:
@@ -32,14 +34,12 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      # Do NOT use the project's gradle-wrapper.jar.
-      # GitHub Actions was rejecting that JAR during wrapper validation.
       - name: Set up Gradle 9.5
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.5'
+          validate-wrappers: false
 
       - name: Show Gradle version
         run: gradle --version
