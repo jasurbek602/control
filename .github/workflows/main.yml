@@ -19,15 +19,22 @@ jobs:
           java-version: '17'
           distribution: 'temurin'
 
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '9.3'
+
+      - name: Regenerate Gradle Wrapper
+        run: |
+          cd android-child
+          gradle wrapper --gradle-version 9.3
+          sed -i 's/\r//' gradlew
+          chmod +x gradlew
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
         with:
           packages: ''
-
-      - name: Fix gradlew line endings and permissions
-        run: |
-          sed -i 's/\r//' android-child/gradlew
-          chmod +x android-child/gradlew
 
       - name: Build Debug APK
         working-directory: android-child
