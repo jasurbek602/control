@@ -28,7 +28,7 @@ jobs:
       - name: Generate Gradle Wrapper
         run: |
           cd android-child
-          gradle wrapper --gradle-version 8.10.2
+          gradle wrapper --gradle-version 9.5.0
           sed -i 's/\r//' gradlew
           chmod +x gradlew
 
