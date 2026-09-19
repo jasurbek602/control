@@ -1,99 +1,280 @@
 package com.example.parentalchild
 
-import android.content.Context
-import android.net.Uri
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.Service
+import android.content.Intent
+import android.content.pm.ServiceInfo
+import android.media.MediaRecorder
+import android.os.Build
+import android.os.IBinder
+import androidx.core.app.NotificationCompat
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
-class CallRecordingManager(private val context: Context) {
+/**
+ * User-started, visible foreground audio recording.
+ *
+ * Bu servis faqat foydalanuvchi MainActivity'dagi
+ * "Audio yozishni boshlash" tugmasini bosganda ishlaydi.
+ *
+ * Telefon qo'ng'iroqlarini yashirincha yozmaydi.
+ */
+class AudioRecordingService : Service() {
 
     companion object {
-        private const val DIR_NAME = "call_recordings"
+        const val ACTION_START =
+            "com.example.parentalchild.audio.START"
+
+        const val ACTION_STOP =
+            "com.example.parentalchild.audio.STOP"
+
+        private const val CHANNEL_ID =
+            "family_guard_audio"
+
+        private const val NOTIFICATION_ID = 2001
+
         private const val MAX_RECORDINGS = 5
     }
 
-    private val dir: File
-        get() = File(context.filesDir, DIR_NAME).apply {
-            mkdirs()
+    private var recorder: MediaRecorder? = null
+    private var currentFile: File? = null
+
+    override fun onCreate() {
+        super.onCreate()
+
+        val manager =
+            getSystemService(NotificationManager::class.java)
+
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ID,
+                "Family Guard audio recording",
+                NotificationManager.IMPORTANCE_LOW
+            )
+        )
+    }
+
+    override fun onStartCommand(
+        intent: Intent?,
+        flags: Int,
+        startId: Int
+    ): Int {
+
+        when (intent?.action) {
+
+            ACTION_START -> {
+                startRecording()
+            }
+
+            ACTION_STOP -> {
+                stopRecording()
+            }
         }
 
-    /**
-     * Foydalanuvchi Samsung Phone'dan tanlagan/share qilgan
-     * call recording faylini Family Guard lokal xotirasiga saqlaydi.
-     *
-     * Har doim faqat eng oxirgi 5 ta yozuv saqlanadi.
-     */
-    fun importRecording(uri: Uri): File? {
-        return try {
-            val originalName = getFileName(uri)
-                ?: "call_${System.currentTimeMillis()}.m4a"
+        return START_NOT_STICKY
+    }
 
-            val safeName = sanitizeFileName(originalName)
-            val output = File(
-                dir,
-                "${System.currentTimeMillis()}_$safeName"
+    private fun startRecording() {
+
+        if (recorder != null) {
+            return
+        }
+
+        try {
+
+            startForeground(
+                NOTIFICATION_ID,
+                buildNotification("🔴 Audio yozilmoqda"),
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                } else {
+                    0
+                }
             )
 
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                output.outputStream().use { out ->
-                    input.copyTo(out)
+            val dir = File(
+                filesDir,
+                "audio_recordings"
+            ).apply {
+                mkdirs()
+            }
+
+            trimOldRecordings(dir)
+
+            val timestamp =
+                SimpleDateFormat(
+                    "yyyy-MM-dd_HH-mm-ss",
+                    Locale.US
+                ).format(Date())
+
+            val file = File(
+                dir,
+                "audio_$timestamp.m4a"
+            )
+
+            val mediaRecorder =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    MediaRecorder(this)
+                } else {
+                    @Suppress("DEPRECATION")
+                    MediaRecorder()
                 }
-            } ?: return null
 
-            trimToLastFive()
+            mediaRecorder.apply {
 
-            output
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    fun getLastFive(): List<File> {
-        return dir.listFiles()
-            ?.filter { it.isFile }
-            ?.sortedByDescending { it.lastModified() }
-            ?.take(MAX_RECORDINGS)
-            ?: emptyList()
-    }
-
-    private fun trimToLastFive() {
-        val files = dir.listFiles()
-            ?.filter { it.isFile }
-            ?.sortedByDescending { it.lastModified() }
-            ?: return
-
-        files.drop(MAX_RECORDINGS).forEach {
-            runCatching { it.delete() }
-        }
-    }
-
-    private fun getFileName(uri: Uri): String? {
-        return try {
-            context.contentResolver
-                .query(
-                    uri,
-                    arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
-                    null,
-                    null,
-                    null
+                setAudioSource(
+                    MediaRecorder.AudioSource.MIC
                 )
-                ?.use { cursor ->
-                    if (cursor.moveToFirst()) {
-                        val index = cursor.getColumnIndex(
-                            android.provider.OpenableColumns.DISPLAY_NAME
-                        )
-                        if (index >= 0) cursor.getString(index) else null
-                    } else {
-                        null
-                    }
-                }
+
+                setOutputFormat(
+                    MediaRecorder.OutputFormat.MPEG_4
+                )
+
+                setAudioEncoder(
+                    MediaRecorder.AudioEncoder.AAC
+                )
+
+                setAudioEncodingBitRate(128000)
+
+                setAudioSamplingRate(44100)
+
+                setOutputFile(
+                    file.absolutePath
+                )
+
+                prepare()
+
+                start()
+            }
+
+            recorder = mediaRecorder
+            currentFile = file
+
+            updateNotification(
+                "🔴 Audio yozilmoqda: ${file.name}"
+            )
+
         } catch (_: Exception) {
-            null
+
+            releaseRecorder()
+
+            runCatching {
+                stopForeground(
+                    STOP_FOREGROUND_REMOVE
+                )
+            }
+
+            stopSelf()
         }
     }
 
-    private fun sanitizeFileName(name: String): String {
-        return name
-            .replace(Regex("[^a-zA-Z0-9._-]"), "_")
-            .take(120)
+    private fun stopRecording() {
+
+        try {
+
+            recorder?.stop()
+
+        } catch (_: Exception) {
+
+            runCatching {
+                currentFile?.delete()
+            }
+
+        } finally {
+
+            releaseRecorder()
+
+            runCatching {
+                stopForeground(
+                    STOP_FOREGROUND_REMOVE
+                )
+            }
+
+            stopSelf()
+        }
+    }
+
+    private fun releaseRecorder() {
+
+        runCatching {
+            recorder?.reset()
+        }
+
+        runCatching {
+            recorder?.release()
+        }
+
+        recorder = null
+        currentFile = null
+    }
+
+    private fun buildNotification(
+        text: String
+    ): Notification {
+
+        return NotificationCompat.Builder(
+            this,
+            CHANNEL_ID
+        )
+            .setContentTitle("Family Guard")
+            .setContentText(text)
+            .setSmallIcon(
+                android.R.drawable.ic_btn_speak_now
+            )
+            .setOngoing(true)
+            .setPriority(
+                NotificationCompat.PRIORITY_LOW
+            )
+            .build()
+    }
+
+    private fun updateNotification(
+        text: String
+    ) {
+
+        getSystemService(
+            NotificationManager::class.java
+        ).notify(
+            NOTIFICATION_ID,
+            buildNotification(text)
+        )
+    }
+
+    private fun trimOldRecordings(
+        dir: File
+    ) {
+
+        dir.listFiles()
+            ?.filter {
+                it.isFile &&
+                it.name.startsWith("audio_") &&
+                it.extension.equals("m4a", ignoreCase = true)
+            }
+            ?.sortedByDescending {
+                it.lastModified()
+            }
+            ?.drop(MAX_RECORDINGS - 1)
+            ?.forEach {
+                runCatching {
+                    it.delete()
+                }
+            }
+    }
+
+    override fun onDestroy() {
+
+        releaseRecorder()
+
+        super.onDestroy()
+    }
+
+    override fun onBind(
+        intent: Intent?
+    ): IBinder? {
+        return null
     }
 }
