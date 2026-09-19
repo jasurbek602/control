@@ -63,6 +63,11 @@ class Api(private val baseUrl: String, private val secret: String) {
         }
     }
 
+    fun uploadFile(file: java.io.File, mimeType: String): String {
+        val base64 = Base64.getEncoder().encodeToString(file.readBytes())
+        return uploadImage(base64, mimeType)
+    }
+
     // JSON ma'lumotlarni (ilovalar ro'yxati, usage) yuborish uchun
     fun uploadJson(jsonStr: String): String {
         val base64 = Base64.getEncoder().encodeToString(jsonStr.toByteArray())
