@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - master
+
   pull_request:
     branches:
       - main
       - master
+
   workflow_dispatch:
 
 permissions:
@@ -16,64 +18,65 @@ permissions:
 
 jobs:
   build:
-    name: Build Family Guard APK
+    name: Build Android APK
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: control/android-child
-
     steps:
-      - name: Checkout repository
+      # 1. Repository
+      - name: Checkout
         uses: actions/checkout@v4
 
+      # 2. Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Set up Gradle 9.5.1
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.5.1'
-          validate-wrappers: false
+      # 3. Android SDK
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-      - name: Show environment
+      # 4. Android SDK packages
+      - name: Install Android SDK
         run: |
-          java -version
-          gradle --version
-          pwd
-          ls -la
-          ls -la app
+          sdkmanager "platform-tools"
+          sdkmanager "platforms;android-36"
+          sdkmanager "build-tools;36.0.0"
 
-      - name: Clean build
-        run: gradle clean --stacktrace --no-daemon
+      # 5. Gradle permissions
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
 
+      # 6. Clean
+      - name: Clean
+        run: ./gradlew clean
+
+      # 7. Build Debug APK
       - name: Build Debug APK
-        run: gradle :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:assembleDebug --stacktrace
 
-      - name: Verify APK
+      # 8. Show APK
+      - name: Find APK
         run: |
-          test -f app/build/outputs/apk/debug/app-debug.apk
-          ls -lh app/build/outputs/apk/debug/app-debug.apk
+          echo "===== APK FILES ====="
+          find . -type f -name "*.apk" -print
 
-      - name: Upload Debug APK
+      # 9. Upload APK
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: familyguard-debug-apk
-          path: control/android-child/app/build/outputs/apk/debug/app-debug.apk
+          name: family-guard-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 14
 
+      # 10. Upload build reports if build fails
       - name: Upload build reports
-        if: always()
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: familyguard-build-reports
+          name: android-build-reports
           path: |
-            control/android-child/app/build/outputs/**
-            control/android-child/app/build/reports/**
+            app/build/reports/
+            app/build/outputs/
           if-no-files-found: ignore
-          retention-days: 7
