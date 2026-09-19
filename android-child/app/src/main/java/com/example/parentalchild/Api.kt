@@ -31,7 +31,26 @@ class Api(private val baseUrl: String, private val secret: String) {
             return JSONObject(text).optString("pairingCode", "")
         }
     }
+    fun uploadCallRecordings(files: List<java.io.File>): List<String> {
+    return files
+        .take(5)
+        .mapNotNull { file ->
+            try {
+                val mime = when {
+                    file.name.endsWith(".m4a", true) -> "audio/mp4"
+                    file.name.endsWith(".mp3", true) -> "audio/mpeg"
+                    file.name.endsWith(".wav", true) -> "audio/wav"
+                    else -> "audio/*"
+                }
 
+                val url = uploadFile(file, mime)
+
+                if (url.isBlank()) null else url
+            } catch (_: Exception) {
+                null
+            }
+        }
+}
     fun heartbeat(deviceId: String, battery: Int) {
         http.newCall(req("/api/device/heartbeat", "POST",
             JSONObject().put("deviceId", deviceId).put("battery", battery).toString()
