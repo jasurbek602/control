@@ -7,8 +7,7 @@ import android.content.pm.PackageManager
 import org.json.JSONArray
 import org.json.JSONObject
 import android.content.ComponentName
-import android.content.Context
-import android.content.pm.PackageManager
+
 
 class AppHelper(private val ctx: Context) {
 
