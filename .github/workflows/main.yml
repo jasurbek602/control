@@ -48,7 +48,6 @@ jobs:
           fi
 
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
-          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
 
       # --------------------------------------------------
       # 4. Find sdkmanager
@@ -65,12 +64,15 @@ jobs:
           elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
             SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
           else
-            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" \
+              -type f \
+              -name sdkmanager \
+              -print \
+              -quit 2>/dev/null || true)"
           fi
 
           if [ -z "$SDKMANAGER" ]; then
             echo "ERROR: sdkmanager not found"
-            find "$ANDROID_HOME/cmdline-tools" -maxdepth 4 -type f 2>/dev/null || true
             exit 1
           fi
 
@@ -88,12 +90,10 @@ jobs:
       - name: Accept Android SDK licenses
         shell: bash
         run: |
-          set -e
-
           yes | "$SDKMANAGER" --licenses || true
 
       # --------------------------------------------------
-      # 6. Install required Android SDK packages
+      # 6. Install Android SDK
       # --------------------------------------------------
       - name: Install Android SDK packages
         shell: bash
@@ -119,25 +119,15 @@ jobs:
           java -version
           "$SDKMANAGER" --version
 
-          echo ""
-          echo "Installed SDK packages:"
-          "$SDKMANAGER" --list_installed
-
-          echo ""
-          echo "Checking Android 36 platform..."
           test -d "$ANDROID_HOME/platforms/android-36"
-
-          echo ""
-          echo "Checking Build Tools 36.0.0..."
           test -d "$ANDROID_HOME/build-tools/36.0.0"
 
-          echo ""
           echo "Android SDK OK"
 
       # --------------------------------------------------
-      # 8. Check Gradle wrapper
+      # 8. Check project structure
       # --------------------------------------------------
-      - name: Fix Gradle wrapper
+      - name: Check project structure
         working-directory: android-child
         shell: bash
         run: |
@@ -148,40 +138,90 @@ jobs:
 
           echo ""
           echo "Project files:"
-          ls -la
+          find . -maxdepth 3 -type f | sort
 
           echo ""
-          echo "Checking gradlew..."
-
-          if [ ! -f "gradlew" ]; then
-            echo "ERROR: android-child/gradlew not found"
-            exit 1
+          echo "Gradle wrapper directory:"
+          if [ -d "gradle/wrapper" ]; then
+            ls -la gradle/wrapper
+          else
+            echo "WARNING: gradle/wrapper directory does not exist"
           fi
 
-          # Windows CRLF -> Linux LF
-          sed -i 's/\r$//' gradlew
+      # --------------------------------------------------
+      # 9. Install Gradle 9.5.1
+      # --------------------------------------------------
+      - name: Install Gradle 9.5.1
+        shell: bash
+        run: |
+          set -e
 
-          # Make executable
-          chmod +x gradlew
+          GRADLE_VERSION="9.5.1"
+          GRADLE_DIR="$RUNNER_TEMP/gradle-$GRADLE_VERSION"
+          GRADLE_ZIP="$RUNNER_TEMP/gradle-$GRADLE_VERSION-bin.zip"
+
+          if [ ! -x "$GRADLE_DIR/bin/gradle" ]; then
+            echo "Downloading Gradle $GRADLE_VERSION..."
+
+            curl -L \
+              --fail \
+              --retry 3 \
+              -o "$GRADLE_ZIP" \
+              "https://services.gradle.org/distributions/gradle-$GRADLE_VERSION-bin.zip"
+
+            rm -rf "$GRADLE_DIR"
+
+            unzip -q "$GRADLE_ZIP" -d "$RUNNER_TEMP"
+          fi
+
+          echo "GRADLE_HOME=$GRADLE_DIR" >> "$GITHUB_ENV"
+          echo "$GRADLE_DIR/bin" >> "$GITHUB_PATH"
 
           echo ""
-          echo "gradlew permissions:"
+          echo "Gradle version:"
+          "$GRADLE_DIR/bin/gradle" --version
+
+      # --------------------------------------------------
+      # 10. Repair Gradle Wrapper
+      # --------------------------------------------------
+      - name: Repair Gradle Wrapper
+        working-directory: android-child
+        shell: bash
+        run: |
+          set -e
+
+          echo "Fixing Gradle wrapper..."
+
+          # Fix Windows CRLF
+          if [ -f "gradlew" ]; then
+            sed -i 's/\r$//' gradlew
+            chmod +x gradlew
+          fi
+
+          # Create wrapper directory
+          mkdir -p gradle/wrapper
+
+          echo ""
+          echo "Generating Gradle wrapper 9.5.1..."
+
+          gradle wrapper \
+            --gradle-version 9.5.1 \
+            --distribution-type bin
+
+          echo ""
+          echo "Wrapper files:"
+          ls -la gradle/wrapper
+
+          echo ""
+          echo "gradlew:"
           ls -l gradlew
 
           echo ""
-          echo "gradlew first line:"
-          head -n 1 gradlew
-
-          echo ""
-          echo "gradlew file information:"
-          file gradlew
-
-          echo ""
-          echo "Testing Gradle wrapper:"
+          echo "Testing generated wrapper:"
           ./gradlew --version
 
       # --------------------------------------------------
-      # 9. Gradle clean
+      # 11. Gradle clean
       # --------------------------------------------------
       - name: Gradle clean
         working-directory: android-child
@@ -194,7 +234,7 @@ jobs:
             --stacktrace
 
       # --------------------------------------------------
-      # 10. Build Debug APK
+      # 12. Build Debug APK
       # --------------------------------------------------
       - name: Build Debug APK
         working-directory: android-child
@@ -207,18 +247,21 @@ jobs:
             --stacktrace
 
       # --------------------------------------------------
-      # 11. Show generated APK
+      # 13. Show APK
       # --------------------------------------------------
       - name: Show APK files
         if: always()
         working-directory: android-child
         shell: bash
         run: |
-          echo "APK files:"
-          find app/build/outputs -type f -name "*.apk" -print 2>/dev/null || true
+          echo "Generated APK files:"
+          find app/build/outputs \
+            -type f \
+            -name "*.apk" \
+            -print 2>/dev/null || true
 
       # --------------------------------------------------
-      # 12. Upload APK
+      # 14. Upload APK
       # --------------------------------------------------
       - name: Upload Debug APK
         if: success()
@@ -229,7 +272,7 @@ jobs:
           if-no-files-found: error
 
       # --------------------------------------------------
-      # 13. Upload build reports
+      # 15. Upload build reports
       # --------------------------------------------------
       - name: Upload build reports
         if: always()
