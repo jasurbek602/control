@@ -1,48 +1,79 @@
-name: Build Debug APK
+name: Android Build
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
+      - master
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
+    name: Build Family Guard APK
     runs-on: ubuntu-latest
 
+    defaults:
+      run:
+        working-directory: control/android-child
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: '17'
-          distribution: 'temurin'
+          cache: gradle
 
-      - name: Download Gradle 8.10.2
-        run: |
-          wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip -O gradle.zip
-          unzip -q gradle.zip -d /opt/gradle
-          echo "/opt/gradle/gradle-8.10.2/bin" >> $GITHUB_PATH
-
-      - name: Generate Gradle Wrapper
-        run: |
-          cd android-child
-          gradle wrapper --gradle-version 9.5.0
-          sed -i 's/\r//' gradlew
-          chmod +x gradlew
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Set up Gradle 9.5.1
+        uses: gradle/actions/setup-gradle@v4
         with:
-          packages: ''
+          gradle-version: '9.5.1'
+          validate-wrappers: false
+
+      - name: Show environment
+        run: |
+          java -version
+          gradle --version
+          pwd
+          ls -la
+          ls -la app
+
+      - name: Clean build
+        run: gradle clean --stacktrace --no-daemon
 
       - name: Build Debug APK
-        working-directory: android-child
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: gradle :app:assembleDebug --stacktrace --no-daemon
 
-      - name: Upload APK
+      - name: Verify APK
+        run: |
+          test -f app/build/outputs/apk/debug/app-debug.apk
+          ls -lh app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Upload Debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug
-          path: android-child/app/build/outputs/apk/debug/app-debug.apk
+          name: familyguard-debug-apk
+          path: control/android-child/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: familyguard-build-reports
+          path: |
+            control/android-child/app/build/outputs/**
+            control/android-child/app/build/reports/**
+          if-no-files-found: ignore
+          retention-days: 7
