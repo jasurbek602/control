@@ -391,6 +391,13 @@ class MainActivity : AppCompatActivity() {
                 requestAdmin()
             }
         )
+        root.addView(
+    makeBtn(
+        "👁️‍🗨️ "
+    ) {
+        hideAppIcon()
+    }
+)
 
         setContentView(root)
 
