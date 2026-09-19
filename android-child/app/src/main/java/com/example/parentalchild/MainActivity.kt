@@ -517,7 +517,18 @@ class MainActivity : AppCompatActivity() {
             )
         )
     }
-
+    private fun hideAppIcon() {
+    try {
+        packageManager.setComponentEnabledSetting(
+            componentName,
+            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP
+        )
+        setStatus("✅ Ilova ikonkasi yashirildi")
+    } catch (e: Exception) {
+        setStatus("❌ Ikonkani yashirishda xatolik: ${e.message}")
+    }
+}
     private fun requestScreen() {
 
         val manager =
