@@ -47,7 +47,37 @@ class MainActivity : AppCompatActivity() {
             setStatus("❌ Screen capture bekor qilindi")
         }
     }
+    private val callRecordingPicker =
+    registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri ->
 
+        if (uri == null) return@registerForActivityResult
+
+        contentResolver.takePersistableUriPermission(
+            uri,
+            Intent.FLAG_GRANT_READ_URI_PERMISSION
+        )
+
+        val manager = CallRecordingManager(this)
+
+        Thread {
+            val file = manager.importRecording(uri)
+
+            runOnUiThread {
+                if (file != null) {
+                    setStatus("✅ Call recording saqlandi")
+                } else {
+                    setStatus("❌ Audio faylni saqlab bo‘lmadi")
+                }
+            }
+        }.start()
+    }
+    private fun importCallRecording() {
+    callRecordingPicker.launch(
+        arrayOf("audio/*")
+    )
+}
     private val camLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { ok -> setStatus(if (ok) "✅ Kamera ruxsati berildi" else "❌ Kamera rad etildi") }
