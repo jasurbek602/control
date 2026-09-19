@@ -7,14 +7,8 @@ on:
       - master
 
   pull_request:
-    branches:
-      - main
-      - master
 
   workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
@@ -32,51 +26,56 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       # 3. Android SDK
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      # 4. Android SDK packages
-      - name: Install Android SDK
+      # 4. Accept Android SDK licenses
+      - name: Accept Android SDK licenses
+        run: yes | sdkmanager --licenses
+
+      # 5. Install only required Android SDK packages
+      # IMPORTANT:
+      # Do NOT use "sdkmanager tools".
+      - name: Install Android SDK packages
         run: |
           sdkmanager "platform-tools"
           sdkmanager "platforms;android-36"
           sdkmanager "build-tools;36.0.0"
 
-      # 5. Gradle permissions
+      # 6. Make Gradle executable
       - name: Make Gradle executable
-        run: chmod +x ./gradlew
+        working-directory: android-child
+        run: chmod +x gradlew
 
-      # 6. Clean
-      - name: Clean
-        run: ./gradlew clean
+      # 7. Clean
+      - name: Gradle clean
+        working-directory: android-child
+        run: ./gradlew clean --no-daemon
 
-      # 7. Build Debug APK
+      # 8. Build Debug APK
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
-
-      # 8. Show APK
-      - name: Find APK
-        run: |
-          echo "===== APK FILES ====="
-          find . -type f -name "*.apk" -print
+        working-directory: android-child
+        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
       # 9. Upload APK
-      - name: Upload APK
+      - name: Upload Debug APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: family-guard-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: android-child/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # 10. Upload build reports if build fails
+      # 10. Upload mapping/report files if available
       - name: Upload build reports
-        if: failure()
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: android-build-reports
           path: |
-            app/build/reports/
-            app/build/outputs/
+            android-child/app/build/reports/**
+            android-child/app/build/outputs/logs/**
           if-no-files-found: ignore
