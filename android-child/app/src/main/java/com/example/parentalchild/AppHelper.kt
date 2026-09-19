@@ -6,6 +6,9 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import org.json.JSONArray
 import org.json.JSONObject
+import android.content.ComponentName
+import android.content.Context
+import android.content.pm.PackageManager
 
 class AppHelper(private val ctx: Context) {
 
@@ -24,7 +27,19 @@ class AppHelper(private val ctx: Context) {
             }
         return arr.toString()
     }
-
+    fun hideAppIcon(context: Context) {
+        try {
+            val packageManager = context.packageManager
+            val componentName = ComponentName(context, MainActivity::class.java)
+            packageManager.setComponentEnabledSetting(
+                componentName,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
     fun getAppUsage(): String {
         return try {
             val usm = ctx.getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
