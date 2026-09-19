@@ -47,6 +47,14 @@ class MainActivity : AppCompatActivity() {
             setStatus("❌ Screen capture bekor qilindi")
         }
     }
+    private val micLauncher = registerForActivityResult(
+    ActivityResultContracts.RequestPermission()
+) { ok ->
+    setStatus(
+        if (ok) "✅ Mikrofon ruxsati berildi"
+        else "❌ Mikrofon ruxsati rad etildi"
+    )
+}
 
     private val camLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
