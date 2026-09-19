@@ -16,11 +16,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Repository
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2. Java 17
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -28,39 +26,49 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # 3. Android SDK
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Configure Android SDK
+        run: |
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
 
-      # 4. Accept Android SDK licenses
+      - name: Show Android SDK information
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+          sdkmanager --version
+          java -version
+
       - name: Accept Android SDK licenses
-        run: yes | sdkmanager --licenses
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
 
-      # 5. Install only required Android SDK packages
-      # IMPORTANT:
-      # Do NOT use "sdkmanager tools".
       - name: Install Android SDK packages
         run: |
-          sdkmanager "platform-tools"
-          sdkmanager "platforms;android-36"
-          sdkmanager "build-tools;36.0.0"
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
 
-      # 6. Make Gradle executable
+      - name: Verify Android SDK
+        run: |
+          sdkmanager --list_installed
+          test -d "$ANDROID_HOME/platforms/android-36"
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
+
       - name: Make Gradle executable
         working-directory: android-child
         run: chmod +x gradlew
 
-      # 7. Clean
       - name: Gradle clean
         working-directory: android-child
-        run: ./gradlew clean --no-daemon
+        run: ./gradlew clean --no-daemon --stacktrace
 
-      # 8. Build Debug APK
       - name: Build Debug APK
         working-directory: android-child
-        run: ./gradlew :app:assembleDebug --stacktrace --no-daemon
+        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
 
-      # 9. Upload APK
       - name: Upload Debug APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -69,7 +77,6 @@ jobs:
           path: android-child/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
-      # 10. Upload mapping/report files if available
       - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
