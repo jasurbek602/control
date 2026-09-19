@@ -16,9 +16,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # --------------------------------------------------
+      # 1. Checkout
+      # --------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+      # --------------------------------------------------
+      # 2. Java 17
+      # --------------------------------------------------
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -26,49 +32,194 @@ jobs:
           java-version: '17'
           cache: gradle
 
+      # --------------------------------------------------
+      # 3. Android SDK
+      # --------------------------------------------------
       - name: Configure Android SDK
         run: |
           echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
-          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+          if [ -d "$ANDROID_HOME/cmdline-tools/latest/bin" ]; then
+            echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          fi
+
+          if [ -d "$ANDROID_HOME/cmdline-tools/16.0/bin" ]; then
+            echo "$ANDROID_HOME/cmdline-tools/16.0/bin" >> "$GITHUB_PATH"
+          fi
+
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
 
-      - name: Show Android SDK information
+      # --------------------------------------------------
+      # 4. Find sdkmanager
+      # --------------------------------------------------
+      - name: Configure sdkmanager
+        shell: bash
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          sdkmanager --version
-          java -version
+          set -e
 
+          SDKMANAGER=""
+
+          if [ -x "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          elif [ -x "$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager" ]; then
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/16.0/bin/sdkmanager"
+          else
+            SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager -print -quit 2>/dev/null || true)"
+          fi
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager not found"
+            find "$ANDROID_HOME/cmdline-tools" -maxdepth 4 -type f 2>/dev/null || true
+            exit 1
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "$(dirname "$SDKMANAGER")" >> "$GITHUB_PATH"
+
+          echo "Using sdkmanager:"
+          echo "$SDKMANAGER"
+
+          "$SDKMANAGER" --version
+
+      # --------------------------------------------------
+      # 5. Android SDK licenses
+      # --------------------------------------------------
       - name: Accept Android SDK licenses
+        shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
+          set -e
 
+          yes | "$SDKMANAGER" --licenses || true
+
+      # --------------------------------------------------
+      # 6. Install required Android SDK packages
+      # --------------------------------------------------
       - name: Install Android SDK packages
+        shell: bash
         run: |
-          sdkmanager \
+          set -e
+
+          "$SDKMANAGER" \
             "platform-tools" \
             "platforms;android-36" \
             "build-tools;36.0.0"
 
+      # --------------------------------------------------
+      # 7. Verify Android SDK
+      # --------------------------------------------------
       - name: Verify Android SDK
+        shell: bash
         run: |
-          sdkmanager --list_installed
+          set -e
+
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
+
+          java -version
+          "$SDKMANAGER" --version
+
+          echo ""
+          echo "Installed SDK packages:"
+          "$SDKMANAGER" --list_installed
+
+          echo ""
+          echo "Checking Android 36 platform..."
           test -d "$ANDROID_HOME/platforms/android-36"
+
+          echo ""
+          echo "Checking Build Tools 36.0.0..."
           test -d "$ANDROID_HOME/build-tools/36.0.0"
 
-      - name: Make Gradle executable
-        working-directory: android-child
-        run: chmod +x gradlew
+          echo ""
+          echo "Android SDK OK"
 
+      # --------------------------------------------------
+      # 8. Check Gradle wrapper
+      # --------------------------------------------------
+      - name: Fix Gradle wrapper
+        working-directory: android-child
+        shell: bash
+        run: |
+          set -e
+
+          echo "Current directory:"
+          pwd
+
+          echo ""
+          echo "Project files:"
+          ls -la
+
+          echo ""
+          echo "Checking gradlew..."
+
+          if [ ! -f "gradlew" ]; then
+            echo "ERROR: android-child/gradlew not found"
+            exit 1
+          fi
+
+          # Windows CRLF -> Linux LF
+          sed -i 's/\r$//' gradlew
+
+          # Make executable
+          chmod +x gradlew
+
+          echo ""
+          echo "gradlew permissions:"
+          ls -l gradlew
+
+          echo ""
+          echo "gradlew first line:"
+          head -n 1 gradlew
+
+          echo ""
+          echo "gradlew file information:"
+          file gradlew
+
+          echo ""
+          echo "Testing Gradle wrapper:"
+          ./gradlew --version
+
+      # --------------------------------------------------
+      # 9. Gradle clean
+      # --------------------------------------------------
       - name: Gradle clean
         working-directory: android-child
-        run: ./gradlew clean --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -e
 
+          ./gradlew clean \
+            --no-daemon \
+            --stacktrace
+
+      # --------------------------------------------------
+      # 10. Build Debug APK
+      # --------------------------------------------------
       - name: Build Debug APK
         working-directory: android-child
-        run: ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -e
 
+          ./gradlew :app:assembleDebug \
+            --no-daemon \
+            --stacktrace
+
+      # --------------------------------------------------
+      # 11. Show generated APK
+      # --------------------------------------------------
+      - name: Show APK files
+        if: always()
+        working-directory: android-child
+        shell: bash
+        run: |
+          echo "APK files:"
+          find app/build/outputs -type f -name "*.apk" -print 2>/dev/null || true
+
+      # --------------------------------------------------
+      # 12. Upload APK
+      # --------------------------------------------------
       - name: Upload Debug APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -77,6 +228,9 @@ jobs:
           path: android-child/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
 
+      # --------------------------------------------------
+      # 13. Upload build reports
+      # --------------------------------------------------
       - name: Upload build reports
         if: always()
         uses: actions/upload-artifact@v4
