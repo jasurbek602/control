@@ -13,6 +13,7 @@ import android.media.projection.MediaProjectionManager
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
+import android.content.pm.ServiceInfo
 import android.view.WindowManager
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
@@ -69,44 +70,16 @@ class ScreenCaptureService : Service() {
         startId: Int
     ): Int {
 
-        startForeground(
-            1,
-            NotificationCompat.Builder(this, "cap")
-                .setContentTitle("Family Guard")
-                .setContentText("Monitoring faol")
-                .setSmallIcon(android.R.drawable.ic_menu_view)
-                .setOngoing(true)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .build()
-        )
-
-        // Intent dan deviceId olishga harakat qilamiz.
-        // Bo'lmasa SharedPreferences dan olamiz.
         val devId =
             intent?.getStringExtra("deviceId")
                 ?: getSharedPreferences("fg", MODE_PRIVATE)
                     .getString("deviceId", null)
 
-        if (devId != null) {
-            deviceId = devId
-
-            api = Api(
-                BuildConfig.API_URL,
-                BuildConfig.DEVICE_SECRET
-            )
-
-            getSharedPreferences("fg", MODE_PRIVATE)
-                .edit()
-                .putString("deviceId", devId)
-                .apply()
-        }
-
-        // Screen capture ruxsati
         val code =
             intent?.getIntExtra(
                 "resultCode",
                 Activity.RESULT_CANCELED
-            )
+            ) ?: Activity.RESULT_CANCELED
 
         val data: Intent? =
             if (Build.VERSION.SDK_INT >= 33) {
@@ -119,27 +92,61 @@ class ScreenCaptureService : Service() {
                 intent?.getParcelableExtra("code")
             }
 
-        if (
-            code != null &&
-            code != Activity.RESULT_CANCELED &&
-            data != null
+        // Bu service faqat valid MediaProjection session bilan ishlaydi.
+        // Startup/boot/watchdog'dan token'siz ishga tushirilsa, darhol to'xtaydi.
+        if (devId.isNullOrBlank() ||
+            code != Activity.RESULT_OK ||
+            data == null
         ) {
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val bounds =
+        deviceId = devId
+        api = Api(
+            BuildConfig.API_URL,
+            BuildConfig.DEVICE_SECRET
+        )
+
+        getSharedPreferences("fg", MODE_PRIVATE)
+            .edit()
+            .putString("deviceId", devId)
+            .apply()
+
+        try {
+            val notification =
+                NotificationCompat.Builder(this, "cap")
+                    .setContentTitle("Family Guard")
+                    .setContentText("Screen capture faol")
+                    .setSmallIcon(android.R.drawable.ic_menu_view)
+                    .setOngoing(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW)
+                    .build()
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    1,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                startForeground(1, notification)
+            }
+
+            val metrics =
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     getSystemService(WindowManager::class.java)
                         .currentWindowMetrics
                         .bounds
+                } else {
+                    resources.displayMetrics.run {
+                        android.graphics.Rect(0, 0, widthPixels, heightPixels)
+                    }
+                }
 
-                w = bounds.width()
-                h = bounds.height()
-            } else {
-                val dm = resources.displayMetrics
-
-                w = dm.widthPixels
-                h = dm.heightPixels
-            }
-
+            w = metrics.width()
+            h = metrics.height()
             dpi = resources.displayMetrics.densityDpi
 
             projection?.stop()
@@ -147,14 +154,13 @@ class ScreenCaptureService : Service() {
             reader?.close()
 
             projection =
-                (
-                    getSystemService(
-                        MEDIA_PROJECTION_SERVICE
-                    ) as MediaProjectionManager
-                ).getMediaProjection(
-                    code,
-                    data
-                )
+                (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
+                    .getMediaProjection(code, data)
+
+            if (projection == null) {
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
 
             reader =
                 ImageReader.newInstance(
@@ -175,101 +181,40 @@ class ScreenCaptureService : Service() {
                     null,
                     null
                 )
+
+        } catch (t: Throwable) {
+            // Permission/security/runtime xatolari servisni butun processni
+            // yiqitmasdan to'xtatishi kerak.
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
 
-        // Loop faqat bir marta ishga tushadi.
-        // DeviceId mavjud bo'lishi kerak.
-        if (!running && ::deviceId.isInitialized) {
+        if (!running) {
             running = true
-
-            WatchdogReceiver.schedule(this)
-
             startHeartbeatLoop()
             startPollLoop()
         }
 
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        scheduleRestart(2_000)
         super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
-
         running = false
         isRunning = false
         instance = null
 
         display?.release()
+        display = null
         reader?.close()
+        reader = null
         projection?.stop()
-
-        scheduleRestart(3_000)
+        projection = null
 
         super.onDestroy()
-    }
-
-    private fun scheduleRestart(delayMs: Long) {
-
-        try {
-            val savedId =
-                getSharedPreferences(
-                    "fg",
-                    MODE_PRIVATE
-                ).getString("deviceId", null)
-                    ?: return
-
-            val intent =
-                Intent(
-                    applicationContext,
-                    ScreenCaptureService::class.java
-                )
-                    .putExtra("deviceId", savedId)
-
-            val pending =
-                PendingIntent.getService(
-                    applicationContext,
-                    99,
-                    intent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or
-                            PendingIntent.FLAG_IMMUTABLE
-                )
-
-            val alarm =
-                getSystemService(AlarmManager::class.java)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-
-                if (alarm.canScheduleExactAlarms()) {
-
-                    alarm.setExactAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        System.currentTimeMillis() + delayMs,
-                        pending
-                    )
-
-                } else {
-
-                    alarm.setAndAllowWhileIdle(
-                        AlarmManager.RTC_WAKEUP,
-                        System.currentTimeMillis() + delayMs,
-                        pending
-                    )
-                }
-
-            } else {
-
-                alarm.setExactAndAllowWhileIdle(
-                    AlarmManager.RTC_WAKEUP,
-                    System.currentTimeMillis() + delayMs,
-                    pending
-                )
-            }
-
-        } catch (_: Exception) {
-        }
     }
 
     private fun startHeartbeatLoop() {
