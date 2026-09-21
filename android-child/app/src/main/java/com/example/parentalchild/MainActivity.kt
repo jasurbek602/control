@@ -401,24 +401,11 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
-        try {
-
-            startForegroundService(
-                Intent(
-                    this,
-                    ScreenCaptureService::class.java
-                )
-                    .putExtra(
-                        "deviceId",
-                        deviceId
-                    )
-            )
-
-        } catch (_: Exception) {
-        }
-
+        // ScreenCaptureService endi ilova ochilishi bilan avtomatik
+        // ishga tushmaydi. U faqat foydalanuvchi screen-capture
+        // ruxsatini bergandan keyin ishga tushiriladi.
         tvPairing.text =
-            "Device ID: $deviceId\nUlanmoqda..."
+            "Device ID: $deviceId\nServerga ulanmoqda..."
 
         thread {
 
@@ -452,25 +439,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        WatchdogReceiver.schedule(this)
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.TIRAMISU
-        ) {
-
-            if (
-                ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.POST_NOTIFICATIONS
-                ) != PackageManager.PERMISSION_GRANTED
-            ) {
-
-                notifLauncher.launch(
-                    Manifest.permission.POST_NOTIFICATIONS
-                )
-            }
-        }
+        // POST_NOTIFICATIONS ruxsati endi startup paytida so'ralmaydi.
+        // Foydalanuvchi uni alohida tugma orqali xohlasa beradi.
     }
 
     private fun makeBtn(
