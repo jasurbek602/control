@@ -149,14 +149,14 @@ jobs:
           fi
 
       # --------------------------------------------------
-      # 9. Install Gradle 9.5.1
+      # 9. Install Gradle 9.5.0
       # --------------------------------------------------
-      - name: Install Gradle 9.5.1
+      - name: Install Gradle 9.5.0
         shell: bash
         run: |
           set -e
 
-          GRADLE_VERSION="9.5.1"
+          GRADLE_VERSION="9.5.0"
           GRADLE_DIR="$RUNNER_TEMP/gradle-$GRADLE_VERSION"
           GRADLE_ZIP="$RUNNER_TEMP/gradle-$GRADLE_VERSION-bin.zip"
 
@@ -202,10 +202,10 @@ jobs:
           mkdir -p gradle/wrapper
 
           echo ""
-          echo "Generating Gradle wrapper 9.5.1..."
+          echo "Generating Gradle wrapper 9.5.0..."
 
           gradle wrapper \
-            --gradle-version 9.5.1 \
+            --gradle-version 9.5.0 \
             --distribution-type bin
 
           echo ""
