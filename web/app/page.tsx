@@ -1,7 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 
-// ─── Tiplar ───────────────────────────────────────────────────
 type Device = {
   _id: string; name: string; deviceId: string;
   pairingCode: string; online: boolean;
@@ -11,19 +10,13 @@ type Req = {
   _id: string; deviceId: string; type: string;
   status: string; createdAt: string; resultUrl?: string;
 };
-
-// BUG FIX #1: LogEntry aniqlandi (avval ishlatilgan lekin hech qachon e'lon qilinmagan edi)
 type LogEntry = {
   number: string; name?: string; type?: string;
   duration?: number; date?: string; body?: string;
 };
-
-// BUG FIX #2: AppList, AppUsage, Notif uchun to'g'ri tiplar (avval AppEntry noto'g'ri ishlatilgan edi)
 type AppListEntry  = { package: string; name: string; isSystem?: boolean };
 type AppUsageEntry = { package: string; totalTimeMs: number; lastUsed?: number; name?: string };
 type NotifEntry    = { appName?: string; packageName?: string; postTime?: string; title?: string; text?: string };
-
-// BUG FIX #3: 'notifications' kind qo'shildi (avval ModalContent da yo'q edi, lekin openResult da ishlatilgan edi)
 type ModalContent =
   | { kind: 'image';         url: string }
   | { kind: 'map';           lat: number; lng: number }
@@ -33,7 +26,6 @@ type ModalContent =
   | { kind: 'sms';           data: LogEntry[] }
   | { kind: 'notifications'; data: NotifEntry[] };
 
-// ─── Konstantalar ─────────────────────────────────────────────
 const STATUS_COLOR: Record<string, string> = {
   PENDING: '#f59e0b', DONE: '#10b981', FAILED: '#ef4444',
 };
@@ -50,7 +42,6 @@ const TYPE_META: Record<string, { icon: string; label: string }> = {
   NOTIFICATION_LOGS: { icon: '🔔', label: 'Bildirishnomalar' },
 };
 
-// ─── Yordamchi funksiyalar ────────────────────────────────────
 function timeAgo(dateStr: string) {
   const sec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
   if (sec < 60)    return `${sec}s oldin`;
@@ -74,7 +65,6 @@ function isJsonType(t: string) {
   return ['APP_LIST', 'APP_USAGE', 'CALL_LOGS', 'SMS_LOGS', 'NOTIFICATION_LOGS'].includes(t);
 }
 
-// ─── Stillar ──────────────────────────────────────────────────
 const S = {
   page: {
     minHeight: '100vh',
@@ -137,7 +127,6 @@ const S = {
   } as React.CSSProperties,
 };
 
-// ─── Login ekrani ─────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: () => void }) {
   const [pwd, setPwd]   = useState('');
   const [err, setErr]   = useState('');
@@ -176,7 +165,6 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
         <div style={{ fontSize: 52, marginBottom: 16 }}>🛡️</div>
         <div style={{ fontSize: 22, fontWeight: 700, color: '#f1f5f9', marginBottom: 6 }}>Family Guard</div>
         <div style={{ fontSize: 13, color: '#64748b', marginBottom: 32 }}>Kirish uchun parolni kiriting</div>
-
         <div style={{ position: 'relative', marginBottom: 16 }}>
           <input
             type={show ? 'text' : 'password'}
@@ -185,34 +173,19 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
             onChange={e => setPwd(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && login()}
             autoFocus
-            style={{
-              ...S.input,
-              width: '100%',
-              boxSizing: 'border-box',
-              fontSize: 16,
-              letterSpacing: show ? 0 : 4,
-              paddingRight: 44,
-            }}
+            style={{ ...S.input, width: '100%', boxSizing: 'border-box', fontSize: 16, letterSpacing: show ? 0 : 4, paddingRight: 44 }}
           />
-          <button
-            onClick={() => setShow(s => !s)}
-            style={{
-              position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
-              background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#64748b',
-            }}>
+          <button onClick={() => setShow(s => !s)}
+            style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#64748b' }}>
             {show ? '🙈' : '👁'}
           </button>
         </div>
-
         {err && (
           <div style={{ color: '#f87171', fontSize: 13, marginBottom: 14, background: 'rgba(248,113,113,0.1)', padding: '8px 12px', borderRadius: 8 }}>
             ❌ {err}
           </div>
         )}
-
-        <button
-          onClick={login}
-          disabled={busy || !pwd.trim()}
+        <button onClick={login} disabled={busy || !pwd.trim()}
           style={{ ...S.btnPrimary, width: '100%', opacity: busy || !pwd.trim() ? 0.5 : 1, fontSize: 15, padding: '13px 0' }}>
           {busy ? 'Tekshirilmoqda...' : 'Kirish →'}
         </button>
@@ -221,9 +194,7 @@ function LoginScreen({ onLogin }: { onLogin: () => void }) {
   );
 }
 
-// ─── Asosiy komponent ─────────────────────────────────────────
 export default function Home() {
-  // BUG FIX #4: useState faqat komponent ichida bo'lishi kerak (avval modul darajasida edi — CRASH)
   const [auth, setAuth]             = useState<null | boolean>(null);
   const [devices, setDevices]       = useState<Device[]>([]);
   const [requests, setRequests]     = useState<Req[]>([]);
@@ -236,7 +207,6 @@ export default function Home() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const prevDoneIds = useRef<Set<string>>(new Set());
 
-  // Auth tekshirish
   useEffect(() => {
     fetch('/api/auth').then(r => setAuth(r.ok)).catch(() => setAuth(false));
   }, []);
@@ -248,9 +218,7 @@ export default function Home() {
 
   function playBeep() {
     try {
-      const ctx  = new AudioContext();
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
+      const ctx = new AudioContext(); const osc = ctx.createOscillator(); const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.frequency.value = 880;
       gain.gain.setValueAtTime(0.3, ctx.currentTime);
@@ -280,22 +248,14 @@ export default function Home() {
   async function connect() {
     if (!pairCode.trim()) return;
     setBusy(true);
-    await fetch('/api/device/register', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ pairingCode: pairCode.trim(), name }),
-    });
+    await fetch('/api/device/register', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ pairingCode: pairCode.trim(), name }) });
     setBusy(false); setPairCode(''); refresh();
   }
 
   async function deleteDevice(id: string, dName: string) {
     if (!confirm(`"${dName}" qurilmasini o'chirishni xohlaysizmi?\nBarcha so'rovlar ham o'chadi.`)) return;
     setDeletingId(id);
-    await fetch('/api/device/register', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
+    await fetch('/api/device/register', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
     setDeletingId(null); refresh();
   }
 
@@ -304,40 +264,24 @@ export default function Home() {
     if (offline.length === 0) return;
     if (!confirm(`${offline.length} ta offline qurilmani o'chirishni xohlaysizmi?`)) return;
     for (const d of offline) {
-      await fetch('/api/device/register', {
-        method: 'DELETE',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: d._id }),
-      });
+      await fetch('/api/device/register', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: d._id }) });
     }
     refresh();
   }
 
   async function sendReq(deviceId: string, type: string) {
-    await fetch('/api/request', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ deviceId, type }),
-    });
+    await fetch('/api/request', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ deviceId, type }) });
     refresh();
   }
 
   async function deleteReq(id: string) {
-    await fetch('/api/request', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
+    await fetch('/api/request', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id }) });
     refresh();
   }
 
   async function clearAll() {
     if (!confirm("Barcha so'rovlarni o'chirishni xohlaysizmi?")) return;
-    await fetch('/api/request', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ all: true }),
-    });
+    await fetch('/api/request', { method: 'DELETE', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ all: true }) });
     refresh();
   }
 
@@ -346,46 +290,28 @@ export default function Home() {
     setLoadingId(r._id);
     if (isLatLng(r.resultUrl)) {
       const [lat, lng] = r.resultUrl.split(',').map(Number);
-      setModal({ kind: 'map', lat, lng });
-      setLoadingId(null); return;
+      setModal({ kind: 'map', lat, lng }); setLoadingId(null); return;
     }
     if (isJsonType(r.type)) {
       try {
-        const res  = await fetch(r.resultUrl);
-        const data = await res.json();
-        if (r.type === 'APP_LIST')          setModal({ kind: 'apps',          data });
-        else if (r.type === 'APP_USAGE')    setModal({ kind: 'usage',         data });
-        else if (r.type === 'CALL_LOGS')    setModal({ kind: 'calls',         data });
-        else if (r.type === 'SMS_LOGS')     setModal({ kind: 'sms',           data });
+        const res = await fetch(r.resultUrl); const data = await res.json();
+        if (r.type === 'APP_LIST')               setModal({ kind: 'apps',          data });
+        else if (r.type === 'APP_USAGE')         setModal({ kind: 'usage',         data });
+        else if (r.type === 'CALL_LOGS')         setModal({ kind: 'calls',         data });
+        else if (r.type === 'SMS_LOGS')          setModal({ kind: 'sms',           data });
         else if (r.type === 'NOTIFICATION_LOGS') setModal({ kind: 'notifications', data });
       } catch (_) {}
       setLoadingId(null); return;
     }
-    setModal({ kind: 'image', url: r.resultUrl });
-    setLoadingId(null);
+    setModal({ kind: 'image', url: r.resultUrl }); setLoadingId(null);
   }
 
-  // ── Loading ──
-  if (auth === null) {
-    return (
-      <div style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontSize: 40 }}>⏳</div>
-      </div>
-    );
-  }
-
-  // ── Login ekrani ──
+  if (auth === null) return <div style={{ ...S.page, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><div style={{ fontSize: 40 }}>⏳</div></div>;
   if (!auth) return <LoginScreen onLogin={() => setAuth(true)} />;
 
   const filtered = requests.filter(r => filter === 'ALL' || r.status === filter);
-  const counts = {
-    ALL:     requests.length,
-    PENDING: requests.filter(r => r.status === 'PENDING').length,
-    DONE:    requests.filter(r => r.status === 'DONE').length,
-    FAILED:  requests.filter(r => r.status === 'FAILED').length,
-  };
+  const counts = { ALL: requests.length, PENDING: requests.filter(r => r.status === 'PENDING').length, DONE: requests.filter(r => r.status === 'DONE').length, FAILED: requests.filter(r => r.status === 'FAILED').length };
   const offlineCount = devices.filter(d => !d.online).length;
-
   const BTNS = [
     { type: 'SCREENSHOT',        label: '📸 Screenshot' },
     { type: 'CAMERA_FRONT',      label: '🤳 Selfie' },
@@ -401,7 +327,6 @@ export default function Home() {
 
   return (
     <div style={S.page}>
-      {/* Header */}
       <header style={S.header}>
         <span style={{ fontSize: 24 }}>🛡️</span>
         <div>
@@ -413,72 +338,38 @@ export default function Home() {
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', display: 'inline-block' }} />
             <span style={{ fontSize: 12, color: '#64748b' }}>{devices.filter(d => d.online).length} online</span>
           </div>
-          <button onClick={logout} style={{
-            ...S.btnAction,
-            color: '#f87171',
-            borderColor: 'rgba(248,113,113,0.3)',
-            background: 'rgba(248,113,113,0.08)',
-            fontSize: 12,
-          }}>
-            🚪 Chiqish
-          </button>
+          <button onClick={logout} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)', fontSize: 12 }}>🚪 Chiqish</button>
         </div>
       </header>
 
       <div style={S.wrap}>
-
-        {/* Pairing */}
         <div style={S.card}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>
-            Qurilma ulash
-          </div>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', marginBottom: 14, textTransform: 'uppercase', letterSpacing: 1 }}>Qurilma ulash</div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-            <input placeholder="Bolaning ismi" value={name} onChange={e => setName(e.target.value)}
-              style={{ ...S.input, minWidth: 130 }} />
-            <input placeholder="Pairing code" value={pairCode}
-              onChange={e => setPairCode(e.target.value.toUpperCase())}
-              onKeyDown={e => e.key === 'Enter' && connect()}
-              style={{ ...S.input, minWidth: 160, letterSpacing: 3, fontWeight: 700 }} />
-            <button onClick={connect} disabled={busy || !pairCode.trim()}
-              style={{ ...S.btnPrimary, opacity: busy || !pairCode.trim() ? 0.5 : 1 }}>
-              {busy ? '...' : 'Ulash'}
-            </button>
+            <input placeholder="Bolaning ismi" value={name} onChange={e => setName(e.target.value)} style={{ ...S.input, minWidth: 130 }} />
+            <input placeholder="Pairing code" value={pairCode} onChange={e => setPairCode(e.target.value.toUpperCase())} onKeyDown={e => e.key === 'Enter' && connect()} style={{ ...S.input, minWidth: 160, letterSpacing: 3, fontWeight: 700 }} />
+            <button onClick={connect} disabled={busy || !pairCode.trim()} style={{ ...S.btnPrimary, opacity: busy || !pairCode.trim() ? 0.5 : 1 }}>{busy ? '...' : 'Ulash'}</button>
           </div>
         </div>
 
-        {/* Offline tozalash */}
         {offlineCount > 0 && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12, marginTop: -8 }}>
-            <button onClick={deleteAllOffline}
-              style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
+            <button onClick={deleteAllOffline} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
               🗑 {offlineCount} ta offline qurilmani o'chirish
             </button>
           </div>
         )}
 
-        {/* Qurilmalar */}
         {devices.map(d => (
-          <div key={d._id} style={{
-            ...S.card,
-            borderColor: d.online ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.07)',
-            background:  d.online ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)',
-          }}>
+          <div key={d._id} style={{ ...S.card, borderColor: d.online ? 'rgba(16,185,129,0.3)' : 'rgba(255,255,255,0.07)', background: d.online ? 'rgba(16,185,129,0.05)' : 'rgba(255,255,255,0.03)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <div style={{ position: 'relative' }}>
                 <span style={{ fontSize: 32 }}>📱</span>
-                <span style={{
-                  position: 'absolute', bottom: 0, right: -2,
-                  width: 10, height: 10, borderRadius: '50%',
-                  background: d.online ? '#10b981' : '#475569',
-                  boxShadow: d.online ? '0 0 8px #10b981' : 'none',
-                  border: '2px solid #1a1a2e', display: 'block',
-                }} />
+                <span style={{ position: 'absolute', bottom: 0, right: -2, width: 10, height: 10, borderRadius: '50%', background: d.online ? '#10b981' : '#475569', boxShadow: d.online ? '0 0 8px #10b981' : 'none', border: '2px solid #1a1a2e', display: 'block' }} />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: '#f1f5f9' }}>{d.name}</div>
-                <div style={{ fontSize: 11, color: '#475569' }}>
-                  {d.online ? '🟢 Online' : `⚫ Offline · ${timeAgo(d.lastSeen)}`}
-                </div>
+                <div style={{ fontSize: 11, color: '#475569' }}>{d.online ? '🟢 Online' : `⚫ Offline · ${timeAgo(d.lastSeen)}`}</div>
               </div>
               {d.battery != null && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'rgba(255,255,255,0.06)', padding: '4px 10px', borderRadius: 8 }}>
@@ -489,142 +380,84 @@ export default function Home() {
                   <span style={{ fontSize: 12, fontWeight: 600, color: batteryColor(d.battery) }}>{d.battery}%</span>
                 </div>
               )}
-              <button onClick={() => deleteDevice(d._id, d.name)} disabled={deletingId === d._id}
-                style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
+              <button onClick={() => deleteDevice(d._id, d.name)} disabled={deletingId === d._id} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)' }}>
                 {deletingId === d._id ? '...' : "🗑 O'chirish"}
               </button>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               {BTNS.map(({ type, label }) => (
-                <button key={type} onClick={() => sendReq(d.deviceId, type)} disabled={!d.online}
-                  style={{ ...S.btnAction, opacity: d.online ? 1 : 0.4, cursor: d.online ? 'pointer' : 'not-allowed' }}>
-                  {label}
-                </button>
+                <button key={type} onClick={() => sendReq(d.deviceId, type)} disabled={!d.online} style={{ ...S.btnAction, opacity: d.online ? 1 : 0.4, cursor: d.online ? 'pointer' : 'not-allowed' }}>{label}</button>
               ))}
             </div>
           </div>
         ))}
 
-        {/* So'rovlar tarixi */}
         <div style={S.card}>
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, flex: 1 }}>
-              So'rovlar tarixi
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, flex: 1 }}>So'rovlar tarixi</div>
             {requests.length > 0 && (
-              <button onClick={clearAll}
-                style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)', fontSize: 11 }}>
-                Hammasini o'chirish
-              </button>
+              <button onClick={clearAll} style={{ ...S.btnAction, color: '#f87171', borderColor: 'rgba(248,113,113,0.3)', background: 'rgba(248,113,113,0.08)', fontSize: 11 }}>Hammasini o'chirish</button>
             )}
           </div>
-
           <div style={{ display: 'flex', gap: 6, marginBottom: 16, flexWrap: 'wrap' }}>
             {(['ALL', 'PENDING', 'DONE', 'FAILED'] as const).map(f => (
-              <button key={f} onClick={() => setFilter(f)} style={{
-                padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                border:      filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)',
-                background:  filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)',
-                color:       filter === f ? '#fff' : '#64748b',
-                boxShadow:   filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none',
-              }}>
+              <button key={f} onClick={() => setFilter(f)} style={{ padding: '5px 14px', borderRadius: 20, fontSize: 12, fontWeight: 600, cursor: 'pointer', border: filter === f ? 'none' : '1px solid rgba(255,255,255,0.1)', background: filter === f ? 'linear-gradient(135deg, #6366f1, #8b5cf6)' : 'rgba(255,255,255,0.05)', color: filter === f ? '#fff' : '#64748b', boxShadow: filter === f ? '0 2px 10px rgba(99,102,241,0.4)' : 'none' }}>
                 {f} {counts[f] > 0 && <span style={{ opacity: 0.8 }}>({counts[f]})</span>}
               </button>
             ))}
           </div>
-
-          {filtered.length === 0 && (
-            <div style={{ textAlign: 'center', padding: '32px 0', color: '#475569', fontSize: 14 }}>
-              So'rovlar yo'q
-            </div>
-          )}
-
+          {filtered.length === 0 && <div style={{ textAlign: 'center', padding: '32px 0', color: '#475569', fontSize: 14 }}>So'rovlar yo'q</div>}
           {filtered.map(r => {
-            const meta      = TYPE_META[r.type] ?? { icon: '📋', label: r.type };
+            const meta = TYPE_META[r.type] ?? { icon: '📋', label: r.type };
             const hasResult = r.resultUrl && r.status === 'DONE';
-            const dev       = devices.find(d => d.deviceId === r.deviceId);
+            const dev = devices.find(d => d.deviceId === r.deviceId);
             return (
               <div key={r._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                 {hasResult && isImageType(r.type) ? (
-                  <img src={r.resultUrl} alt="" onClick={() => openResult(r)}
-                    style={{ width: 52, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }} />
+                  <img src={r.resultUrl} alt="" onClick={() => openResult(r)} style={{ width: 52, height: 38, objectFit: 'cover', borderRadius: 8, cursor: 'pointer', flexShrink: 0, border: '1px solid rgba(255,255,255,0.1)' }} />
                 ) : (
                   <span style={{ width: 52, textAlign: 'center', fontSize: 24, flexShrink: 0 }}>{meta.icon}</span>
                 )}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{meta.label}</span>
-                    <span style={{
-                      fontSize: 11, fontWeight: 700,
-                      color: STATUS_COLOR[r.status] ?? '#6b7280',
-                      background: `${STATUS_COLOR[r.status]}20`,
-                      padding: '2px 8px', borderRadius: 10,
-                    }}>
-                      {r.status}
-                    </span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: STATUS_COLOR[r.status] ?? '#6b7280', background: `${STATUS_COLOR[r.status]}20`, padding: '2px 8px', borderRadius: 10 }}>{r.status}</span>
                   </div>
-                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>
-                    {dev?.name ?? r.deviceId.slice(0, 8)} · {timeAgo(r.createdAt)}
-                  </div>
+                  <div style={{ fontSize: 11, color: '#475569', marginTop: 2 }}>{dev?.name ?? r.deviceId.slice(0, 8)} · {timeAgo(r.createdAt)}</div>
                 </div>
-                {hasResult && (
-                  <button onClick={() => openResult(r)} disabled={loadingId === r._id}
-                    style={{ ...S.btnPrimary, padding: '5px 12px', fontSize: 12, flexShrink: 0 }}>
-                    {loadingId === r._id ? '...' : "Ko'rish"}
-                  </button>
-                )}
-                <button onClick={() => deleteReq(r._id)}
-                  style={{ ...S.btnAction, padding: '5px 8px', flexShrink: 0, color: '#475569' }}>✕</button>
+                {hasResult && <button onClick={() => openResult(r)} disabled={loadingId === r._id} style={{ ...S.btnPrimary, padding: '5px 12px', fontSize: 12, flexShrink: 0 }}>{loadingId === r._id ? '...' : "Ko'rish"}</button>}
+                <button onClick={() => deleteReq(r._id)} style={{ ...S.btnAction, padding: '5px 8px', flexShrink: 0, color: '#475569' }}>✕</button>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* Modal */}
       {modal && (
-        <div onClick={() => setModal(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
-          <div onClick={e => e.stopPropagation()}
-            style={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, overflow: 'hidden', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+        <div onClick={() => setModal(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#1e1e2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 20, overflow: 'hidden', maxWidth: '95vw', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+            <button onClick={() => setModal(null)} style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#e2e8f0', zIndex: 10 }}>×</button>
 
-            <button onClick={() => setModal(null)}
-              style={{ position: 'sticky', top: 8, float: 'right', margin: '8px 8px 0 0', width: 32, height: 32, borderRadius: '50%', background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', fontSize: 18, fontWeight: 700, color: '#e2e8f0', zIndex: 10 }}>×</button>
-
-            {/* Rasm */}
             {modal.kind === 'image' && (
               <div>
                 <img src={modal.url} alt="result" style={{ maxWidth: '88vw', maxHeight: '80vh', display: 'block' }} />
                 <div style={{ padding: '12px 16px' }}>
-                  <a href={modal.url} download target="_blank"
-                    style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 13 }}>
-                    ⬇ Yuklab olish
-                  </a>
+                  <a href={modal.url} download target="_blank" style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 13 }}>⬇ Yuklab olish</a>
                 </div>
               </div>
             )}
 
-            {/* Xarita */}
             {modal.kind === 'map' && (
               <div style={{ padding: 24 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 16px', color: '#f1f5f9' }}>📍 Bolaning joylashuvi</h3>
-                <iframe
-                  src={`https://maps.google.com/maps?q=${modal.lat},${modal.lng}&z=16&output=embed`}
-                  width="100%" height="380"
-                  style={{ border: 'none', borderRadius: 12, display: 'block', minWidth: 320 }} />
+                <iframe src={`https://maps.google.com/maps?q=${modal.lat},${modal.lng}&z=16&output=embed`} width="100%" height="380" style={{ border: 'none', borderRadius: 12, display: 'block', minWidth: 320 }} />
                 <div style={{ marginTop: 12, display: 'flex', gap: 10, alignItems: 'center' }}>
-                  <a href={`https://maps.google.com/?q=${modal.lat},${modal.lng}`} target="_blank"
-                    style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 13 }}>
-                    🗺 Google Maps da ochish
-                  </a>
-                  <span style={{ fontSize: 12, color: '#475569' }}>
-                    {modal.lat.toFixed(6)}, {modal.lng.toFixed(6)}
-                  </span>
+                  <a href={`https://maps.google.com/?q=${modal.lat},${modal.lng}`} target="_blank" style={{ ...S.btnPrimary, display: 'inline-block', textDecoration: 'none', fontSize: 13 }}>🗺 Google Maps da ochish</a>
+                  <span style={{ fontSize: 12, color: '#475569' }}>{modal.lat.toFixed(6)}, {modal.lng.toFixed(6)}</span>
                 </div>
               </div>
             )}
 
-            {/* O'rnatilgan ilovalar */}
             {modal.kind === 'apps' && (
               <div style={{ padding: 24, minWidth: 340 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📋 O'rnatilgan ilovalar</h3>
@@ -640,28 +473,23 @@ export default function Home() {
               </div>
             )}
 
-            {/* Foydalanish statistikasi */}
             {modal.kind === 'usage' && (
               <div style={{ padding: 24, minWidth: 380 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📊 So'nggi 24 soat</h3>
                 <p style={{ fontSize: 12, color: '#475569', margin: '0 0 16px' }}>Eng ko'p ishlatiladigan ilovalar</p>
                 <div style={{ display: 'grid', gap: 8 }}>
                   {modal.data.map((app, i) => {
-                    // BUG FIX #5: app.minutes → totalTimeMs (ms dan daqiqaga o'tkazish)
                     const minutes = Math.floor((app.totalTimeMs ?? 0) / 60000);
                     const maxMin  = Math.max(Math.floor((modal.data[0]?.totalTimeMs ?? 60000) / 60000), 1);
                     const pct     = Math.round((minutes / maxMin) * 100);
-                    const h       = Math.floor(minutes / 60);
-                    const m       = minutes % 60;
-                    const lbl     = h > 0 ? `${h}s ${m}d` : `${m} daqiqa`;
-                    const clrs    = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b'];
-                    const clr     = clrs[i % clrs.length];
-                    // BUG FIX #6: app.name yo'q bo'lsa app.package ni ko'rsatish
-                    const appLabel = app.name ?? app.package;
+                    const h = Math.floor(minutes / 60); const m = minutes % 60;
+                    const lbl  = h > 0 ? `${h}s ${m}d` : `${m} daqiqa`;
+                    const clrs = ['#6366f1', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b'];
+                    const clr  = clrs[i % clrs.length];
                     return (
                       <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,0.06)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                          <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{appLabel}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{app.name ?? app.package}</span>
                           <span style={{ fontSize: 12, color: clr, fontWeight: 700 }}>{lbl}</span>
                         </div>
                         <div style={{ height: 5, background: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden' }}>
@@ -674,7 +502,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Qo'ng'iroqlar tarixi */}
             {modal.kind === 'calls' && (
               <div style={{ padding: 24, minWidth: 360 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>📞 Qo'ng'iroqlar tarixi</h3>
@@ -686,16 +513,13 @@ export default function Home() {
                         <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0' }}>{item.name || item.number}</div>
                         <div style={{ fontSize: 11, color: '#64748b' }}>{item.number}{item.date ? ` · ${item.date}` : ''}</div>
                       </div>
-                      {item.duration != null && (
-                        <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>{item.duration}s</span>
-                      )}
+                      {item.duration != null && <span style={{ fontSize: 11, color: '#10b981', fontWeight: 600 }}>{item.duration}s</span>}
                     </div>
                   ))}
                 </div>
               </div>
             )}
 
-            {/* SMS xabarlar */}
             {modal.kind === 'sms' && (
               <div style={{ padding: 24, minWidth: 360 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>💬 SMS Xabarlar</h3>
@@ -714,7 +538,6 @@ export default function Home() {
               </div>
             )}
 
-            {/* Bildirishnomalar */}
             {modal.kind === 'notifications' && (
               <div style={{ padding: 24, minWidth: 380, maxWidth: 500 }}>
                 <h3 style={{ fontSize: 16, fontWeight: 700, margin: '0 0 4px', color: '#f1f5f9' }}>🔔 Kelgan Bildirishnomalar</h3>
@@ -723,27 +546,16 @@ export default function Home() {
                   {modal.data.map((item, i) => (
                     <div key={i} style={{ padding: '10px 14px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 10 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-                          {item.appName || item.packageName}
-                        </span>
-                        {item.postTime && (
-                          <span style={{ fontSize: 10, color: '#64748b' }}>{item.postTime}</span>
-                        )}
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{item.appName || item.packageName}</span>
+                        {item.postTime && <span style={{ fontSize: 10, color: '#64748b' }}>{item.postTime}</span>}
                       </div>
-                      {item.title && (
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>
-                          {item.title}
-                        </div>
-                      )}
-                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: '1.4' }}>
-                        {item.text || "Xabar matni yo'q"}
-                      </div>
+                      {item.title && <div style={{ fontSize: 13, fontWeight: 600, color: '#e2e8f0', marginBottom: 2 }}>{item.title}</div>}
+                      <div style={{ fontSize: 12, color: '#94a3b8', lineHeight: '1.4' }}>{item.text || "Xabar matni yo'q"}</div>
                     </div>
                   ))}
                 </div>
               </div>
             )}
-
           </div>
         </div>
       )}
