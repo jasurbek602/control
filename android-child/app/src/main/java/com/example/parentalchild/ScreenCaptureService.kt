@@ -20,8 +20,7 @@ import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 import kotlin.concurrent.thread
-<uses-permission android:name="android.permission.READ_CALL_LOG" />
-<uses-permission android:name="android.permission.READ_SMS" />
+
 
 class ScreenCaptureService : Service() {
 
