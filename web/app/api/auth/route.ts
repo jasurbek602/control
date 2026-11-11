@@ -1,45 +1,27 @@
 import { NextResponse } from 'next/server';
-import crypto from 'node:crypto';
+import { cookies } from 'next/headers';
 
-const PWD = process.env.ADMIN_PASSWORD ?? '';
-const SEC = process.env.SESSION_SECRET ?? 'fg-default-secret';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'admin';
+const COOKIE = 'fg_auth';
 
-function token() {
-  return crypto.createHmac('sha256', SEC).update(PWD).digest('hex');
+export async function GET() {
+  const store = await cookies();
+  return store.get(COOKIE)?.value === ADMIN_PASSWORD
+    ? NextResponse.json({ ok: true })
+    : NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 }
 
-// Tekshirish
-export async function GET(req: Request) {
-  const cookie = req.headers.get('cookie') ?? '';
-  const t = cookie.match(/fg_session=([^;]+)/)?.[1];
-  if (!PWD || !t || t !== token())
-    return NextResponse.json({ ok: false }, { status: 401 });
-  return NextResponse.json({ ok: true });
-}
-
-// Login
 export async function POST(req: Request) {
-  if (!PWD)
-    return NextResponse.json({ error: 'ADMIN_PASSWORD sozlanmagan' }, { status: 500 });
   const { password } = await req.json();
-  const a = Buffer.from(password ?? '');
-  const b = Buffer.from(PWD);
-  if (a.length !== b.length || !crypto.timingSafeEqual(a, b))
-    return NextResponse.json({ error: "Parol noto'g'ri" }, { status: 401 });
+  if (password !== ADMIN_PASSWORD)
+    return NextResponse.json({ error: 'Noto\'g\'ri parol' }, { status: 401 });
   const res = NextResponse.json({ ok: true });
-  res.cookies.set('fg_session', token(), {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'lax',
-    maxAge: 60 * 60 * 24 * 30,
-    path: '/',
-  });
+  res.cookies.set(COOKIE, ADMIN_PASSWORD, { httpOnly: true, path: '/', maxAge: 60 * 60 * 24 * 30 });
   return res;
 }
 
-// Logout
 export async function DELETE() {
   const res = NextResponse.json({ ok: true });
-  res.cookies.set('fg_session', '', { maxAge: 0, path: '/' });
+  res.cookies.delete(COOKIE);
   return res;
 }
