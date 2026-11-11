@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="device_admin_description">Parental-control device administrator</string>
+    <string name="app_name">Android+ System</string>
+    <string name="device_admin_description">Android+ System tizim xizmati</string>
 </resources>

